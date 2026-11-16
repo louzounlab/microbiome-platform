@@ -40,12 +40,13 @@ def test_every_page_loads_and_is_marked_in_the_navigation(client, path, label):
 def test_lab_identity_on_every_page(client, path):
     page = client.get(path).get_data(as_text=True)
     assert "Prof. Yoram Louzoun Lab" in page and "Bar-Ilan University" in page
-    assert "img/yolo_lab.jpg" in page
+    assert "img/yolo_lab_EN_dark.png" in page and "yolo.math.biu.ac.il" in page
 
 
 def test_lab_logo_is_served(client):
-    response = client.get("/static/img/yolo_lab.jpg")
-    assert response.status_code == 200 and response.mimetype == "image/jpeg"
+    """The lab's own logo, as on the lab's live site (preg.math.biu.ac.il/static/yolo_lab_EN_dark.png)."""
+    response = client.get("/static/img/yolo_lab_EN_dark.png")
+    assert response.status_code == 200 and response.mimetype == "image/png"
     response.close()
 
 
