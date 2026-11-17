@@ -53,3 +53,32 @@ The owner's decision: re-test with more seeds, so the rule can tell "equivalent"
 - This result is final for the server: after a PASS, LOCATE is enabled there and the server's exact
   predictions for seeds 10–12 become its exact-match reference; after a FAIL, LOCATE stays off on
   the server and no further amendment is made without a new decision by the owner.
+
+## Amendment 3 (recorded 2026-11-17, after the OS upgrade, before any run below)
+
+**Why.** On 2026-11-16 peptibase10 was upgraded from AlmaLinux 9.8 to 10.3 (same processor, Intel
+Xeon Gold 6342; the platform's own environment, `uv.lock`, unchanged). The exact-match test then
+failed: seed 10 kept its stopping epoch (160) and score (0.4103) but its predictions moved by up to
+0.014; seeds 11 and 12 stopped at other epochs (341 → 241, 421 → 344). On 10.3 the result also
+depends on the thread count, which it did not on 9.8. An exploratory re-run of seeds 30-69 (not the
+formal check, as those seeds were used before) gave: upgraded server − original, mean −0.0024, 90%
+CI [−0.0129, +0.0081]; upgraded − pre-upgrade server, mean −0.0004, CI [−0.0030, +0.0022].
+
+**The owner's decision:** a neural network is not bit-exact across systems, so exact reproduction is
+not pursued. The product test becomes the approved tolerance rule itself, and the server is
+re-validated formally on fresh seeds.
+
+- **New seeds only: 70-109 (40 seeds).**
+- **The original (A)**, unchanged: `run_all.ps1 -Setups A -Examples E2 -Seeds (70..109) -Folder
+  runs-amend3` on the laptop (Python 3.10 reference setup, LOCATE-model 0.0.3, torch 1.13.0+cpu).
+- **The server (S)**, unchanged: `server_check.py run SEED OUT` on peptibase10 (AlmaLinux 10.3), code
+  commit as deployed, 4 threads per run, low priority, 5 seeds side by side.
+- **The rule, unchanged (V2, 40 seeds):** d = S − A per seed (mean test Spearman,
+  `compare_v2.mean_test_spearman`); PASS if mean(d) ± 1.685 × SD / √40 lies within ±0.02.
+  Direction reported as in V2.
+- **After a PASS:** LOCATE is enabled on the server again. The product test changes from exact
+  predictions to this rule: on whatever machine the tests run, the product is trained on seeds
+  70-109 of E2 and compared with the original's recorded scores for those seeds; pass within ±0.02.
+  The exact predictions already recorded (laptop, and the server under 9.8) are kept for reference
+  only and no longer checked. **After a FAIL:** LOCATE stays off on the server; nothing else changes
+  there; findings are reported to the owner.
