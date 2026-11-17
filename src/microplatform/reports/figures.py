@@ -54,6 +54,7 @@ MEDIA_TYPES = {
 ACCENT = "#0f766e"  # the site's teal
 CONTRAST = "#b45309"  # the second group, distinguishable from teal (also for colour blindness)
 MARKER = "#b42318"
+LOG_COUNT_FLOOR = 0.5  # a histogram on a log scale starts here, so a bar of 1 is clearly visible
 # Groups beyond two: distinct hues that stay apart for common colour blindness.
 PALETTE = (ACCENT, CONTRAST, "#6d28d9", "#0369a1", "#be185d", "#4d7c0f", "#57534e")
 # Taxa in composition figures take their colours from one global map, reports/composition.py.
@@ -127,6 +128,7 @@ class Figure:
     group_by: str | None = None  # stacked: blocks of bars; pie: one pie per group
     summary: tuple[str, ...] = ()  # stacked: the group_by values that form the last block
     facet: str | None = None  # box: one panel per value of this column (each with its own y axis)
+    y_from_zero: bool = False  # box: every panel's y axis starts at 0 (the top still fits the data)
     colors: tuple[tuple[str, str], ...] = ()  # (value, colour) pairs; see above
     suptitle: str | None = None  # composition: a bold heading above both panels (e.g. the dataset's name)
     subtitle: str | None = None  # a line under the title (e.g. a test's result)
@@ -477,6 +479,12 @@ def _write_static(fig: Figure, out_dir: Path) -> None:
             ax.bar(fig.data[fig.x].astype(str), fig.data[fig.y], color=ACCENT, width=0.7)
         if fig.log_y:
             ax.set_yscale("log")
+            if fig.kind == "histogram":  # a bar of 1 stays visible; ticks read 1, 2, 5, 10, …
+                ticks = _log_count_ticks(fig)
+                ax.set_ylim(LOG_COUNT_FLOOR, ticks[-1] * 1.6)
+                ax.yaxis.set_major_locator(matplotlib.ticker.FixedLocator(ticks))
+                ax.yaxis.set_major_formatter(matplotlib.ticker.StrMethodFormatter("{x:,.0f}"))
+                ax.yaxis.set_minor_formatter(matplotlib.ticker.NullFormatter())
         if fig.marker:
             ax.axvline(fig.marker[0], color=MARKER, linestyle="--", linewidth=1)
             ax.annotate(fig.marker[1], (fig.marker[0], 1), xycoords=("data", "axes fraction"),
@@ -718,6 +726,8 @@ def _write_boxes(fig: Figure, mpl: MplFigure, out_dir: Path) -> None:
                 ax.text((a + b) / 2, y, label, ha="center", va="bottom", fontsize=9, color=BOX_LINE,
                         fontweight="normal" if label.endswith("ns") else "bold")
             ax.set_ylim(top=high + step * (len(levels) + 1.2))
+        if fig.y_from_zero:
+            ax.set_ylim(bottom=0)
         titles = dict(fig.panel_titles)
         if panel in titles:
             ax.set_title(titles[panel], fontsize=9, loc="left")
@@ -840,7 +850,21 @@ def to_plotly(fig: Figure) -> go.Figure:
         out.update_xaxes(showticklabels=False)
     if fig.log_y:
         out.update_yaxes(type="log")
+        if fig.kind == "histogram":  # as in the PNG: a bar of 1 stays visible; ticks read 1, 2, 5, 10, …
+            ticks = _log_count_ticks(fig)
+            out.update_yaxes(range=[np.log10(LOG_COUNT_FLOOR), np.log10(ticks[-1] * 1.6)],
+                             tickvals=ticks, ticktext=[f"{t:,}" for t in ticks])
     return out
+
+
+def _log_count_ticks(fig: Figure) -> list[int]:
+    """Ticks 1, 2, 5, 10, 20, 50, … up to the first one at or above the tallest histogram bar."""
+    counts, _ = np.histogram(fig.data[fig.x], bins=20, range=fig.x_range)
+    tallest = max(int(counts.max(initial=1)), 1)
+    ticks = []
+    while not ticks or ticks[-1] < tallest:
+        ticks.append((1, 2, 5)[len(ticks) % 3] * 10 ** (len(ticks) // 3))
+    return ticks
 
 
 def _plotly_pies(fig: Figure) -> go.Figure:
@@ -949,7 +973,10 @@ def _plotly_boxes(fig: Figure) -> go.Figure:
                               fillcolor="rgba(0,0,0,0)")  # a line, not a filled shape
                 out.add_annotation(x=(a + b) / 2, y=y, text=label, showarrow=False, yanchor="bottom",
                                    xref=f"x{axis}", yref=f"y{axis}", font={"color": BOX_LINE, "size": 11})
-            out.update_yaxes(range=[low - step, high + step * (len(levels) + 1.2)], row=1, col=col)
+            bottom = 0 if fig.y_from_zero else low - step
+            out.update_yaxes(range=[bottom, high + step * (len(levels) + 1.2)], row=1, col=col)
+        elif fig.y_from_zero:
+            out.update_yaxes(rangemode="tozero", row=1, col=col)
     out.update_layout(title={"text": _title(fig), "x": 0, "xanchor": "left"}, template="simple_white",
                       margin={"l": 60, "r": 20, "t": 50, "b": 50})
     return out

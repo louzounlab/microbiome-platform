@@ -264,6 +264,43 @@ def test_interactive_versions(grouped):
     assert to_plotly(grouped["beta_pcoa"]).layout.xaxis.title.text.startswith("PCo1 (")
 
 
+def _drawn(fig, monkeypatch, tmp_path):
+    """The matplotlib figure the PNG/SVG would be made from."""
+    caught = []
+    monkeypatch.setattr(figures, "_save", lambda mpl, *args, **kwargs: caught.append(mpl))
+    figures._write_static(fig, tmp_path)
+    return caught[0]
+
+
+@pytest.mark.parametrize("case", ["grouped", "plain"])  # with significance brackets, and without
+def test_alpha_diversity_axes_start_at_zero(case, request, monkeypatch, tmp_path):
+    fig = request.getfixturevalue(case)["alpha_diversity"]
+    assert bool(fig.brackets) == (case == "grouped")
+    top = fig.data.groupby("measure")["value"].max()
+    for ax in _drawn(fig, monkeypatch, tmp_path).axes:  # static: Shannon and richness panels
+        low, high = ax.get_ylim()
+        assert low == 0 and high >= top[ax.get_ylabel()]
+    interactive = to_plotly(fig)
+    for axis in (interactive.layout.yaxis, interactive.layout.yaxis2):
+        assert axis.rangemode == "tozero" or axis.range[0] == 0
+        if axis.range:  # with brackets: the top still leaves room for them
+            assert axis.range[1] > top[axis.title.text]
+
+
+def test_taxa_per_sample_counts_on_a_log_scale(grouped, monkeypatch, tmp_path):
+    fig = grouped["taxa_per_sample"]
+    assert fig.log_y and "log scale" in fig.y_label and fig.marker[1].startswith("median")
+    tallest = np.histogram(fig.data[fig.x], bins=20)[0].max()
+    (ax,) = _drawn(fig, monkeypatch, tmp_path).axes
+    low, high = ax.get_ylim()
+    assert ax.get_yscale() == "log" and low < 1 and high > tallest  # a bar of 1 sample stays visible
+    assert [t.get_text() for t in ax.get_yticklabels()][:3] == ["1", "2", "5"]  # plain numbers
+    assert any(line.get_linestyle() == "--" for line in ax.get_lines())  # the median line
+    axis = to_plotly(fig).layout.yaxis
+    assert axis.type == "log" and 10 ** axis.range[0] < 1 and 10 ** axis.range[1] > tallest
+    assert list(axis.ticktext[:3]) == ["1", "2", "5"]
+
+
 def test_pie_percentages_are_readable_on_every_slice():
     for colour in (*PALETTES["lab"], *PALETTES["colorblind"], OTHER_GREY):
         ink = figures._ink(colour)

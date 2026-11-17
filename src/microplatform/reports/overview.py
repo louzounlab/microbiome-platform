@@ -249,7 +249,7 @@ def _alpha_figure(counts: pd.DataFrame, groups: pd.Series, colors: tuple, left_o
             caption=f"{caption}{too_few}{left_out} {DESCRIPTIVE}",
             details=ALPHA_DETAILS,
             data=data, kind="box", x="group", y="value", x_label="", y_label="Value",
-            group_by="group", facet="measure", label="sample", colors=colors,
+            group_by="group", facet="measure", label="sample", colors=colors, y_from_zero=True,
             hover="%{text}: %{y:.3g}<extra></extra>", section="overview",
         )
     tests = sorted(set(table["test"]))
@@ -271,7 +271,7 @@ def _alpha_figure(counts: pd.DataFrame, groups: pd.Series, colors: tuple, left_o
                 f"{diversity_stats.MIN_PER_GROUP} samples are not tested. Cohen's d (pooled SD) and every p-value "
                 f"are in the tests CSV.",
         data=data, kind="box", x="group", y="value", x_label="", y_label="Value",
-        group_by="group", facet="measure", label="sample", colors=colors,
+        group_by="group", facet="measure", label="sample", colors=colors, y_from_zero=True,
         hover="%{text}: %{y:.3g}<extra></extra>", section="overview",
         brackets=diversity_stats.brackets(table, ordered), panel_titles=per_panel, stats=table,
     )
@@ -351,7 +351,7 @@ def _taxa_per_sample(counts: pd.DataFrame) -> Figure:
                 "0); every other taxon is a zero in that sample's row. A sample far below the rest may have "
                 f"failed sequencing. {DESCRIPTIVE}",
         data=data, kind="histogram", x="taxa_detected", y=None, x_range=None,
-        x_label="Taxa detected in a sample", y_label="Number of samples",
+        x_label="Taxa detected in a sample", y_label="Number of samples (log scale)", log_y=True,
         marker=(median, f"median {median:,.0f}"),
         hover="%{x} taxa: %{y} samples<extra></extra>",
         section="overview",

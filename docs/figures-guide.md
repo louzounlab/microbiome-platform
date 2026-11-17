@@ -60,7 +60,8 @@ showing the data) or a **statistical test** (a yes/no question answered with a p
   the number of taxa and how evenly they are spread. **Richness** is simply how many taxa the
   sample contains.
 - **Axes:** x = the groups (or "all samples"). y, left panel = Shannon index, a unitless number
-  (natural log, typically 0 to 5). y, right panel = richness, a count of taxa.
+  (natural log, typically 0 to 5). y, right panel = richness, a count of taxa. Both axes start
+  at 0, so the boxes' heights compare honestly.
 - **How to read it:** each dot is a sample, the box covers the middle half of the samples, and
   the line in it is the median. Higher = more diverse. Richness is counted on raw reads without
   rarefaction (subsampling every sample to the same depth), so deeper samples tend to show more
@@ -86,8 +87,9 @@ showing the data) or a **statistical test** (a yes/no question answered with a p
 ### How many taxa each sample contains (row sparsity)
 - **What it shows:** for each sample, how many of the table's taxa appear in it at all. Most
   taxa are absent from most samples; this shows how many are present.
-- **Axes:** x = taxa detected in a sample (a count). y = number of samples (a count). It's a
-  histogram: each bar collects samples with a similar number of taxa.
+- **Axes:** x = taxa detected in a sample (a count). y = number of samples (a count), on a
+  **log scale** (1, 2, 5, 10, 20, 50, …), so one very tall bar does not hide a tail of a few
+  samples. It's a histogram: each bar collects samples with a similar number of taxa.
 - **How to read it:** the dashed line is the median. A sample far to the left of the rest has
   unusually few taxa: possibly a failed sample.
 - **Type:** descriptive.
