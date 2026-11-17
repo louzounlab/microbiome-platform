@@ -54,6 +54,7 @@ MEDIA_TYPES = {
 ACCENT = "#0f766e"  # the site's teal
 CONTRAST = "#b45309"  # the second group, distinguishable from teal (also for colour blindness)
 MARKER = "#b42318"
+REFERENCE_LINE = 1.5  # px: a dashed reference line (median, cut-off) in the interactive figures
 LOG_COUNT_FLOOR = 0.5  # a histogram on a log scale starts here, so a bar of 1 is clearly visible
 # Groups beyond two: distinct hues that stay apart for common colour blindness.
 PALETTE = (ACCENT, CONTRAST, "#6d28d9", "#0369a1", "#be185d", "#4d7c0f", "#57534e")
@@ -823,14 +824,16 @@ def to_plotly(fig: Figure) -> go.Figure:
     else:  # column
         out.add_trace(go.Bar(x=fig.data[fig.x].astype(str), y=fig.data[fig.y], marker_color=ACCENT,
                              hovertemplate=fig.hover))
+    # Reference lines set their own width and opacity: the template's shape defaults (simple_white: width 0,
+    # opacity 0.3, meant for shaded boxes) would otherwise draw them invisibly.
     if fig.marker:
         # A light box behind the label keeps it readable where it crosses a bar.
-        out.add_vline(x=fig.marker[0], line_dash="dash", line_color=MARKER,
+        out.add_vline(x=fig.marker[0], line_dash="dash", line_color=MARKER, line_width=REFERENCE_LINE, opacity=1,
                       annotation_text=fig.marker[1], annotation_font_color=MARKER,
                       annotation_bgcolor="rgba(255,255,255,0.85)")
     if fig.hline:
-        out.add_hline(y=fig.hline[0], line_dash="dash", line_color=MARKER, annotation_position="top left",
-                      annotation_text=fig.hline[1], annotation_font_color=MARKER)
+        out.add_hline(y=fig.hline[0], line_dash="dash", line_color=MARKER, line_width=REFERENCE_LINE, opacity=1,
+                      annotation_position="top left", annotation_text=fig.hline[1], annotation_font_color=MARKER)
     height = (max(360, 22 * len(fig.data) + 120) if fig.kind == "barh"
               else max(360, 20 * len(fig.data) + 140) if fig.kind == "grouped_barh" else None)
     out.update_layout(

@@ -301,6 +301,14 @@ def test_taxa_per_sample_counts_on_a_log_scale(grouped, monkeypatch, tmp_path):
     assert list(axis.ticktext[:3]) == ["1", "2", "5"]
 
 
+@pytest.mark.parametrize("name", ["taxa_per_sample", "taxa_prevalence"])
+def test_interactive_reference_lines_are_drawn(grouped, name):
+    """The median / cut-off line has its own width and full opacity: the plotly template's shape
+    defaults (width 0, opacity 0.3) would otherwise draw it invisibly."""
+    (line,) = to_plotly(grouped[name]).layout.shapes
+    assert line.line.width > 0 and line.opacity == 1 and line.line.dash == "dash"
+
+
 def test_pie_percentages_are_readable_on_every_slice():
     for colour in (*PALETTES["lab"], *PALETTES["colorblind"], OTHER_GREY):
         ink = figures._ink(colour)
