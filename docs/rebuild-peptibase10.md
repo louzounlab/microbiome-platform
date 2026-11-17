@@ -142,15 +142,17 @@ curl -s -o /dev/null -w "%{http_code}\n" http://127.0.0.1:8000/          # 200
 From the laptop: `ssh -N -L 8000:127.0.0.1:8000 parashn@peptibase10.math.biu.ac.il`, open
 http://127.0.0.1:8000, click **Try the example**, run it, and download the ZIP.
 
-**LOCATE's exact numbers depend on the processor.** If the update moved the platform to different
-hardware, check before offering LOCATE:
+**LOCATE's numbers depend on the processor and the system** (a neural network is not bit-exact
+across them). After new hardware or an operating-system upgrade, check before offering LOCATE:
 
 ```bash
 cd ~/microbiome-platform && ~/.local/bin/uv run pytest tests/test_reproduction.py -k locate -q
 ```
 
-If that fails (or skips with "re-validate first"), switch LOCATE off until it is re-validated:
-add `metabolites` to `MICROPLATFORM_DISABLED_GOALS` in the settings file and restart the services.
+This trains LOCATE on 40 fixed seeds of a small example and checks the approved rule against the
+original LOCATE (the 90% confidence interval of the mean difference within ±0.02); a few minutes.
+If it fails, switch LOCATE off until it is re-validated: add `metabolites` to
+`MICROPLATFORM_DISABLED_GOALS` in the settings file and restart the services.
 
 ---
 

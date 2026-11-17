@@ -349,6 +349,8 @@ def test_imic_two_runs_with_the_same_seed_agree(imic_ours, tmp_path):
 # reference environment (never shipped): PROTOCOL.md (fixed in advance, with Amendment 1),
 # RESULTS.md (V1': the conversion is bit-identical) and RESULTS-V2.md (V2: the product passes the
 # approved equivalence rule). The evidence is saved in tests/data/locate_reference/ (RULE.md).
+# Since Amendment 3 (2026-11-17) the product test applies that rule on the machine it runs on (40 seeds),
+# instead of asking for bit-identical predictions, which no neural network keeps across systems.
 # Still to come, V3: against the authors' own results on a real paired dataset.
 LOCATE_REFERENCE = Path(__file__).parent / "data" / "locate_reference"
 LOCATE_EXAMPLE = Path(__file__).parents[1] / "validation" / "locate" / "data" / "E2"
@@ -365,56 +367,60 @@ def test_locate_product_passes_the_approved_rule_against_the_original():
     assert -0.02 <= d.mean() - half and d.mean() + half <= 0.02
 
 
-def _platform() -> str:
-    import platform
-
-    return f"{platform.system()}-{platform.machine()}".lower()
+LOCATE_RULE_SEEDS = range(70, 110)  # Amendment 3 (validation/locate/SERVER-peptibase10-PLAN.md)
+LOCATE_MARGIN = 0.02
 
 
-def _exact_reference(seed: int) -> tuple[Path, Path]:
-    """This platform's recorded predictions: the laptop's (Windows, the V2 evidence) or one re-validated
-    under the same rule on another platform (``platforms/<os>-<cpu>/``, e.g. the lab server)."""
-    if _platform() == "windows-amd64":
-        return LOCATE_REFERENCE / f"C_pred_val_seed{seed}.csv", LOCATE_REFERENCE / f"C_run_seed{seed}.json"
-    folder = LOCATE_REFERENCE / "platforms" / _platform()
-    if not folder.exists():
-        pytest.skip(f"No LOCATE reference recorded for {_platform()}: different processors round differently, "
-                    "so re-validate there first (validation/locate/server_check.py, the approved V2 rule).")
-    return folder / f"pred_val_seed{seed}.csv", folder / f"seed{seed}.json"
-
-
-def test_locate_on_other_platforms_passed_the_same_rule():
-    """Every platform with its own exact reference passed V2's rule against the original (A), on the
-    seeds its plan names (``scores.csv``: seed, A, S; e.g. the lab server: Amendment 2, seeds 30-69)."""
+def _within_margin(d: pd.Series) -> tuple[bool, str]:
+    """The approved rule: the 90% confidence interval of the mean of d lies within ±0.02."""
     import math
 
     from scipy.stats import t as student_t
 
-    folders = sorted((LOCATE_REFERENCE / "platforms").glob("*/"))
-    assert folders, "the lab server's reference is recorded"
-    for folder in folders:
-        scores = pd.read_csv(folder / "scores.csv")
-        assert len(scores) >= 20 and scores["seed"].is_unique, folder
-        d = scores["S"] - scores["A"]
-        half = student_t.ppf(0.95, len(d) - 1) * d.std(ddof=1) / math.sqrt(len(d))
-        assert -0.02 <= d.mean() - half and d.mean() + half <= 0.02, folder
+    half = student_t.ppf(0.95, len(d) - 1) * d.std(ddof=1) / math.sqrt(len(d))
+    low, high = d.mean() - half, d.mean() + half
+    return (-LOCATE_MARGIN <= low and high <= LOCATE_MARGIN,
+            f"mean {d.mean():+.4f}, 90% CI [{low:+.4f}, {high:+.4f}] (margin ±{LOCATE_MARGIN}, {len(d)} seeds)")
+
+
+def _mean_test_spearman(pred: pd.DataFrame, measured: pd.DataFrame) -> float:
+    """The validation's score (validation/locate/compare_v2.py): mean Spearman over metabolites."""
+    from scipy.stats import spearmanr
+
+    pred = pred.loc[measured.index]
+    return float(np.nanmean([spearmanr(measured[c], pred[c])[0] for c in measured.columns]))
+
+
+def test_locate_on_other_platforms_passed_the_same_rule():
+    """Every platform re-validation recorded here passed the rule against the original (A), on the seeds its
+    plan names (``scores*.csv``: seed, A, S; the lab server: Amendment 2, seeds 30-69, under AlmaLinux 9.8,
+    and Amendment 3, seeds 70-109, under 10.3)."""
+    files = sorted((LOCATE_REFERENCE / "platforms").glob("*/scores*.csv"))
+    assert files, "the lab server's re-validation is recorded"
+    for file in files:
+        scores = pd.read_csv(file)
+        assert len(scores) >= 20 and scores["seed"].is_unique, file
+        passed, summary = _within_margin(scores["S"] - scores["A"])
+        assert passed, f"{file}: {summary}"
 
 
 @pytest.mark.slow
-@pytest.mark.parametrize("seed", [10, 11, 12])
-def test_locate_product_still_gives_its_validated_output(seed, tmp_path, monkeypatch):
-    """The product is deterministic on a given platform; any change (e.g. a library upgrade, or another
-    processor) means: re-validate first. Each platform keeps its own recorded predictions."""
-    import json
+def test_locate_product_passes_the_approved_rule_on_this_machine(tmp_path, monkeypatch):
+    """The product, trained here on example E2 with seeds 70-109, against the original LOCATE's recorded
+    scores for the same seeds: the 90% CI of the mean difference must lie within ±0.02 (Amendment 3).
 
+    Not bit-exact: a neural network's training rounds differently on another processor, system or thread
+    count. The exact predictions recorded earlier (C_pred_val_seed*.csv, platforms/*/pred_val_seed*.csv)
+    are kept for reference only."""
     from microplatform.engines.locate import fit_and_predict
 
-    predictions, run_info = _exact_reference(seed)
+    recorded = pd.read_csv(LOCATE_REFERENCE / "original_scores_seeds70-109.csv").set_index("seed")["A"]
+    assert list(recorded.index) == list(LOCATE_RULE_SEEDS)
     read = lambda name: pd.read_csv(LOCATE_EXAMPLE / f"{name}.csv", index_col=0, float_precision="round_trip")
+    x_train, y_train, x_val, measured = read("X_train"), read("Y_train"), read("X_val"), read("Y_val")
     monkeypatch.chdir(tmp_path)  # the tool writes lightning_logs/ into the current folder
-    out = fit_and_predict(read("X_train"), read("Y_train"), read("X_val"), read("Y_val"), seed=seed)
-    saved = pd.read_csv(predictions, index_col=0, float_precision="round_trip")
-    info = json.loads(run_info.read_text())
-    assert out["epochs"] == info["epochs"]
-    # LOCATE computes in float32; the file keeps 9 significant digits, which recover each float32 exactly.
-    np.testing.assert_array_equal(out["pred_val"].to_numpy(dtype="float32"), saved.to_numpy().astype("float32"))
+    here = pd.Series({seed: _mean_test_spearman(
+        fit_and_predict(x_train, y_train, x_val, measured, seed=seed)["pred_val"], measured)
+        for seed in LOCATE_RULE_SEEDS})
+    passed, summary = _within_margin(here - recorded)
+    assert passed, f"LOCATE differs from the original beyond the approved margin: {summary}"
