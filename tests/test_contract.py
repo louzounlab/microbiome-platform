@@ -35,6 +35,9 @@ from microplatform.router.goals import GOALS, get_goal
 
 PACKAGE = Path(microplatform.__file__).parent
 CONVENTIONS = {ID_COLUMN, TAXONOMY_ROW, LABEL_COLUMN, RANK_SEPARATOR}
+# Code copied unchanged from the lab, kept verbatim on purpose (test_yamas checks it is unchanged and that its
+# separator is the contract's): (file, function).
+COPIED_VERBATIM = {("yamas.py", "normalize_taxonomy_name")}
 # Engines built but not offered yet (their goal is still "planned"): held to the same interface rules.
 PENDING = ()
 ALL_ENGINES = (*ENGINES.values(), *PENDING)
@@ -50,6 +53,8 @@ def test_conventions_are_never_retyped_outside_the_contract():
         tree = ast.parse(path.read_text(encoding="utf-8"))
         # Literal text inside f-strings is prose (e.g. "2024;25:113" in a citation), not a convention.
         prose = {id(part) for node in ast.walk(tree) if isinstance(node, ast.JoinedStr) for part in node.values}
+        prose |= {id(inner) for node in ast.walk(tree) if isinstance(node, ast.FunctionDef)
+                  and (path.name, node.name) in COPIED_VERBATIM for inner in ast.walk(node)}
         for node in ast.walk(tree):
             if isinstance(node, ast.Constant) and node.value in CONVENTIONS and id(node) not in prose:
                 offenders.append(f"{path.relative_to(PACKAGE)}:{node.lineno} {node.value!r}")

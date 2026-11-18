@@ -66,7 +66,8 @@ def test_a_file_added_from_the_plan_step_is_taken_as_asked():
     ("files", "message"),
     [
         ([], "No file"),
-        ([COUNTS, TAGS, TAGS, TAGS], "at most 3"),
+        ([COUNTS, TAGS, TAGS, TAGS, TAGS], "at most 4"),  # 4: YaMAS's otu + taxonomy count as one input
+        ([COUNTS, TAGS, TAGS, TAGS], "both look like labels files"),  # 4 files, but not a YaMAS pair
         ([("data.xlsx", b"PK...")], "Excel"),
         ([("notes.pdf", b"%PDF")], "not a CSV or TSV"),
         ([TAGS], "No counts table"),

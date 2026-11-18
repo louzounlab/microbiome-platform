@@ -13,6 +13,9 @@ recognised by its shape:
   besides the sample IDs (one per metabolite), no 'Tag' column and no 'taxonomy'
   row. With fewer, it is read as a labels file (a label plus a stray column), so
   the user gets the labels file's own message instead of a wrong guess.
+- YaMAS output (``core/yamas.py``) is recognised first: for 16S, an ``otu.csv`` (OTU IDs × samples)
+  and a ``taxonomy.csv`` (OTU IDs with a ``Taxon`` column) become one counts table in the shared
+  format, with the read counts kept. The pair counts as one input (``MAX_FILES`` allows for it).
 A file added from the Plan step is the kind the user chose; only a counts table
 is refused there.
 """
@@ -30,6 +33,7 @@ import pandas as pd
 
 from microplatform.core.contract import INPUT_NAMES, LABEL_COLUMN, RANK_SEPARATOR, TAXONOMY_ROW
 from microplatform.core.errors import UserFacingError
+from microplatform.core import yamas
 from microplatform.core.profiler import ProfileError, is_counts_table, read_table
 
 # One rank of a lineage: a rank letter and two underscores (k__, d__, p__, … s__), name optional.
@@ -37,11 +41,11 @@ RANK_PART = re.compile(r"^[A-Za-z]__")
 # The share of the columns (after the IDs) whose names must be lineages for a table to be read as
 # "taxonomy in the column names". A few others (e.g. "Unassigned") are kept, as written.
 MIN_LINEAGE_SHARE = 0.9
-COUNTS_LAYOUTS = {"row": "a 'taxonomy' row", "headers": "taxonomy in the column names"}
+COUNTS_LAYOUTS = {"row": "a 'taxonomy' row", "headers": "taxonomy in the column names", **yamas.LAYOUTS}
 
 ALLOWED_SUFFIXES = {".csv", ".tsv", ".txt"}
 EXCEL_SUFFIXES = {".xlsx", ".xls", ".xlsm"}
-MAX_FILES = 3  # a counts table, a labels file and a metabolite table
+MAX_FILES = 4  # a counts table (or YaMAS's two files), a labels file and a metabolite table
 MIN_METABOLITE_COLUMNS = 3
 
 TableKind = Literal["counts", "labels", "metabolites"]
@@ -67,7 +71,8 @@ class Inputs:
     labels: pd.DataFrame | None = None  # index = sample ID
     metabolites_name: str | None = None
     metabolites: pd.DataFrame | None = None  # index = sample ID (strings), one column per metabolite
-    counts_layout: str = "row"  # "row" or "headers" (taxonomy in the column names), see COUNTS_LAYOUTS
+    counts_layout: str = "row"  # "row", "headers" (taxonomy in the column names) or a YaMAS layout: COUNTS_LAYOUTS
+    counts_details: dict | None = None  # YaMAS: the files combined and their numbers (OTUs, unassigned, ...)
 
 
 def is_lineage(name: str) -> bool:
@@ -125,14 +130,21 @@ def sort_uploads(files: list[tuple[str, bytes]]) -> Inputs:
     if len(files) > MAX_FILES:
         raise InputError(
             f"{len(files)} files were uploaded; at most {MAX_FILES} are expected.",
-            "Upload one counts table and, if your question needs them, one labels file and one "
-            "metabolite table.",
+            "Upload one counts table (or YaMAS's otu.csv and taxonomy.csv) and, if your question needs "
+            "them, one labels file and one metabolite table.",
         )
 
+    tables = [(name, *_read_upload(name, content)) for name, content in files]
     found: dict[TableKind, tuple[str, pd.DataFrame]] = {}
-    layout = "row"
-    for name, content in files:
-        table, from_headers = _read_upload(name, content)
+    layout, details = "row", None
+    # YaMAS output first: its two files would otherwise look like a labels file and a metabolite table.
+    yamas_files = yamas.combine([(name, table) for name, table, _ in tables])
+    if yamas_files is not None:
+        combined, used = yamas_files
+        found["counts"] = (" + ".join(combined.files), combined.counts)
+        layout, details = combined.layout, {"files": list(combined.files), **combined.details}
+        tables = [t for i, t in enumerate(tables) if i not in used]
+    for name, table, from_headers in tables:
         kind = table_kind(table)
         if from_headers and kind == "counts":
             layout = "headers"
@@ -149,11 +161,12 @@ def sort_uploads(files: list[tuple[str, bytes]]) -> Inputs:
             f"No counts table was found: a counts table either has a last row named '{TAXONOMY_ROW}', "
             "or column names that are taxonomy strings (e.g. k__Bacteria;p__Firmicutes;…).",
             f"Upload the counts table too, or give each bacteria column its lineage: as the column name, "
-            f"or in a last row named '{TAXONOMY_ROW}'. See the template.",
+            f"or in a last row named '{TAXONOMY_ROW}'. See the template. From YaMAS, upload its otu.csv "
+            "together with its taxonomy.csv.",
         )
     labels = found.get("labels", (None, None))
     metabolites = found.get("metabolites", (None, None))
-    return Inputs(*found["counts"], *labels, *metabolites, counts_layout=layout)
+    return Inputs(*found["counts"], *labels, *metabolites, counts_layout=layout, counts_details=details)
 
 
 def read_labels_upload(name: str, content: bytes) -> pd.DataFrame:

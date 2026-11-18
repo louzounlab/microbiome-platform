@@ -12,6 +12,16 @@ taxonomy, k__Bacteria;…, k__Bacteria;…, …</pre>
 <pre>ID,         k__Bacteria;p__Firmicutes;…, k__Bacteria;p__;c__;…, …
 ERR1549010, 0.0312,                      0,                     …
 ERR1549011, 0,                           0.0047,                …</pre>
+    <p><strong>YaMAS output (16S):</strong> upload its two files together, as YaMAS wrote them;
+      we join them into a counts table, keep the read counts and write each lineage in the
+      standard form. <code>otu.csv</code> has one row per OTU and one column per sample;
+      <code>taxonomy.csv</code> has the same OTU IDs and a <code>Taxon</code> column:</p>
+<pre>OTU,     sample1, sample2, …
+a1f3c9…, 120,     0,       …
+7be0d2…, 37,      5,       …</pre>
+<pre>OTU,     Taxon,                           Confidence
+a1f3c9…, d__Bacteria; p__Firmicutes; …,   0.98
+7be0d2…, d__Bacteria; p__Bacteroidota; …, 0.91</pre>
     <p><strong>Labels (optional):</strong> sample IDs in the first column and
       the outcome in a column named <code>Tag</code>, for example sick/healthy
       or an age.</p>

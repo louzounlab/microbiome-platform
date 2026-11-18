@@ -186,6 +186,8 @@ def start_run(root: Path, inputs: Inputs, requested_goal: str | None = None) -> 
                       inputs.metabolites_name, inputs.metabolites)
     if inputs.counts_layout != "row":  # recorded so the data check can say where the taxonomy came from
         run.update_meta(counts_layout=inputs.counts_layout)
+    if inputs.counts_details:  # YaMAS: which files were combined, and their numbers
+        run.update_meta(counts_details=inputs.counts_details)
     _remember_request(run, requested_goal)
     return run
 
@@ -400,8 +402,10 @@ def run_goal(run: runs.Run, goal_id: str, cache_dir: Path | None = None, choices
 
 
 def _dataset_name(run: runs.Run) -> str | None:
-    """The uploaded counts file's name without its extension (the composition figure's heading)."""
-    name = run.meta().get("counts_name")
+    """The uploaded counts file's name without its extension (the composition figure's heading);
+    for YaMAS files, the OTU table's."""
+    meta = run.meta()
+    name = (meta.get("counts_details") or {}).get("files", [None])[0] or meta.get("counts_name")
     return Path(name).stem if name else None
 
 

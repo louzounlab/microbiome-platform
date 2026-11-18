@@ -70,6 +70,32 @@ ERR1549011, 0,                           0.0047,                …
 
 Both give exactly the same analysis; the data check says which one was found.
 
+**YaMAS output (16S)**: upload YaMAS's two files together, as YaMAS wrote them.
+`otu.csv` has one row per OTU (its ID first) and one column per sample, with read
+counts; `taxonomy.csv` has the same OTU IDs and a `Taxon` column (other columns, such
+as `Confidence`, are ignored).
+
+```
+OTU,     sample1, sample2, …
+a1f3c9…, 120,     0,       …
+```
+
+```
+OTU,     Taxon,                          Confidence
+a1f3c9…, d__Bacteria; p__Firmicutes; …,  0.98
+```
+
+They are recognised by their shape (any file names, any order) and joined into one
+counts table. Each lineage is written in the standard form with the lab's
+`normalize_taxonomy_name` (ranks as `k__…;p__…;…`, `D_0__` and `d__` prefixes
+converted, classifier confidences such as `(0.71)` removed, empty taxonomy as
+"Unassigned"). The **read counts are kept** (not turned into percentages), so the data
+check and the quality figures see the sequencing depth, and MIPMLP does the
+normalisation. OTUs that end up with the same lineage stay separate columns: MIPMLP
+groups them (its sub-PCA uses the differences among them), and richness in the data
+overview counts OTUs. The pair counts as one file: with a labels file and a metabolite
+table, that is four files.
+
 **Labels file** (optional): sample IDs in the first column, and the outcome in
 a column named `Tag`. Binary (sick/healthy), categorical (a few groups) and
 continuous (a number such as age) are all recognised.

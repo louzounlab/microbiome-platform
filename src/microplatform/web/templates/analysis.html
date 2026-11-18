@@ -43,6 +43,10 @@
   <ul class="facts">
     {% for line in profile.summary() %}<li>{{ line }}</li>{% endfor %}
     {% if meta.counts_layout == "headers" %}<li>The taxonomy was read from your column names (one lineage per column, as in your file).</li>{% endif %}
+    {% if meta.counts_layout == "yamas-16s" and meta.counts_details %}{% set y = meta.counts_details %}
+      <li>Read as YaMAS 16S output: {{ y.files[0] }} ({{ y.otus|count }} OTUs × {{ y.samples|count }} samples) with the lineages from {{ y.files[1] }}, written in the standard form (k__…;p__…), and the read counts kept as they are.
+        {{ y.otus|count }} OTUs carry {{ y.lineages|count }} different lineages; OTUs with the same lineage stay separate here, and MIPMLP groups them.{% if y.unassigned %} {{ y.unassigned|count }} OTU{{ "s" if y.unassigned != 1 }} had no taxonomy ("Unassigned"); MIPMLP leaves {{ "them" if y.unassigned != 1 else "it" }} out.{% endif %}</li>
+    {% endif %}
     {% if view.labels %}{% for line in view.labels.summary() %}<li>{{ line }}</li>{% endfor %}
     {% else %}<li>No labels file (it is optional): the plan below shows what you can run without one.</li>{% endif %}
     {% if view.metabolites %}{% for line in view.metabolites.summary() %}<li>Metabolite table: {{ line }}</li>{% endfor %}{% endif %}
