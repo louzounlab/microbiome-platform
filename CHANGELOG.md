@@ -25,6 +25,13 @@ All notable changes to `microplatform`. The format follows
 - CLAUDE.md (the assistant's working notes) is no longer in the repository.
 
 ### Added
+- **YaMAS 16S output as an input** (`core/yamas.py`): upload YaMAS's `otu.csv` and `taxonomy.csv`
+  together (any names, any order; recognised by their shape), or pass them to
+  `mp.analyze(("otu.csv", "taxonomy.csv"), ...)`: `counts` now also takes that pair (a single
+  table works as before). They become one counts table with the read counts kept (no
+  percentages) and every lineage standardised by the lab's `normalize_taxonomy_name` (copied
+  unchanged from `docs/preprocess_16S.py`); OTUs with the same lineage stay separate. The pair
+  counts as one input: up to 4 files per upload (was 3). The data check says how the files were read.
 - **Group tests on the diversity figures**, as in the lab's reference analysis
   (louzounlab/Early-Pregnancy-Oral-Microbiome), only when the samples form groups
   (`reports/diversity_stats.py`):

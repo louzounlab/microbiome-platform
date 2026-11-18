@@ -94,7 +94,9 @@ check and the quality figures see the sequencing depth, and MIPMLP does the
 normalisation. OTUs that end up with the same lineage stay separate columns: MIPMLP
 groups them (its sub-PCA uses the differences among them), and richness in the data
 overview counts OTUs. The pair counts as one file: with a labels file and a metabolite
-table, that is four files.
+table, that is four files. Every sample is kept as uploaded; if some sample IDs end in
+`_1` or `_2`, the data check notes how many (in case they mark copies of the same sample,
+which you would remove before uploading).
 
 **Labels file** (optional): sample IDs in the first column, and the outcome in
 a column named `Tag`. Binary (sick/healthy), categorical (a few groups) and

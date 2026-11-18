@@ -211,8 +211,19 @@ def counts_from_16s(otu: pd.DataFrame, taxonomy: pd.DataFrame, names: tuple[str,
                       ignore_index=True)
     details = {"otus": len(ids), "samples": len(samples),
                "unassigned": sum(s == UNASSIGNED for s in standard),
-               "lineages": len(set(standard))}
+               "lineages": len(set(standard)), **replicate_suffixes(samples)}
     return table, details
+
+
+def replicate_suffixes(samples: list[str]) -> dict:
+    """How many sample IDs end in ``_1`` or ``_2``, and how many names appear with both (only reported, for
+    the data check: the lab's bridge script drops ``_2`` and strips ``_1``, which is not done here until the
+    meaning of the suffixes in YaMAS output is settled). Empty if there are none."""
+    ones = {s[:-2] for s in samples if s.endswith("_1")}
+    twos = {s[:-2] for s in samples if s.endswith("_2")}
+    if not (ones or twos):
+        return {}
+    return {"suffix_1": len(ones), "suffix_2": len(twos), "suffix_both": len(ones & twos)}
 
 
 @dataclass(frozen=True)

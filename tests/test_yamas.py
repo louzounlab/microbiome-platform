@@ -103,6 +103,29 @@ def test_otus_with_the_same_lineage_stay_separate():
     assert details == {"otus": 3, "samples": 2, "unassigned": 1, "lineages": 2}
 
 
+def test_samples_ending_in_1_or_2_are_kept_and_only_noted():
+    """The lab's bridge script drops '_2' samples and strips '_1'; not done here (meaning not settled yet)."""
+    otu = pd.DataFrame({"A_1": [3, 1], "A_2": [2, 0], "B_1": [0, 5], "C": [1, 1]},
+                       index=pd.Index(["x", "y"], name="OTU"))
+    taxonomy = pd.DataFrame({"Taxon": ["d__Bacteria; p__Firmicutes", "d__Bacteria; p__Bacteroidota"]},
+                            index=otu.index)
+    table, details = yamas.counts_from_16s(otu.reset_index(), taxonomy.reset_index())
+    assert list(table["ID"].iloc[:-1]) == ["A_1", "A_2", "B_1", "C"]  # every sample, IDs unchanged
+    assert (details["suffix_1"], details["suffix_2"], details["suffix_both"]) == (2, 1, 1)
+    assert yamas.replicate_suffixes(["s1", "s2", "x_10"]) == {}  # nothing to note
+
+
+def test_analyze_takes_the_pair_from_disk(tmp_path):
+    import microplatform as mp
+
+    otu, taxonomy = tmp_path / "otu.csv", tmp_path / "taxonomy.csv"
+    OTU.to_csv(otu)
+    TAXONOMY.to_csv(taxonomy)
+    view = mp.analyze((taxonomy, otu), goal="preprocess", out_dir=tmp_path / "runs", cache_dir=tmp_path / "cache")
+    assert view.status == "done" and view.run.meta()["counts_layout"] == "yamas-16s"
+    assert view.profile.value_kind == "counts"
+
+
 def test_mipmlp_gets_the_same_table_as_from_the_example_itself(tmp_path):
     """Faithfulness: the example as YaMAS files (messy names) preprocesses exactly like the example."""
     table, _ = yamas.counts_from_16s(OTU.reset_index(), TAXONOMY.reset_index())
@@ -181,6 +204,18 @@ def test_uploaded_through_the_site_the_data_check_says_how_it_was_read(tmp_path)
     assert response.status_code == 200
     assert "Read as YaMAS 16S output: otu.csv (263 OTUs × 40 samples)" in page
     assert "the read counts kept as they are" in page and "Median reads" in page  # counts, with depth
+    assert "end in _1" not in page  # the example's sample IDs have no such suffixes: no note
+
+
+def test_the_data_check_notes_samples_ending_in_1_or_2(tmp_path):
+    client = create_app({"TESTING": True, "JOBS": "inline", "RUNS_DIR": tmp_path / "runs",
+                         "CACHE_DIR": tmp_path / "cache"}).test_client()
+    otu = OTU.rename(columns={OTU.columns[0]: "P1_1", OTU.columns[1]: "P1_2", OTU.columns[2]: "P2_1"})
+    data = {"files": [(io.BytesIO(content), name) for name, content in _files(otu, TAXONOMY)]}
+    page = client.post("/upload", data=data, content_type="multipart/form-data",
+                       follow_redirects=True).get_data(as_text=True)
+    assert "2 sample IDs end in _1 and 1 in _2 (1 name with both). Every sample is kept as uploaded" in page
+    assert "40 samples" in page
 
 
 def test_a_whole_analysis_runs_on_yamas_files(tmp_path):

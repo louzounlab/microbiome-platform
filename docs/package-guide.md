@@ -74,6 +74,11 @@ view.run.path / "tables"        # every result table as CSV
 view = mp.analyze("counts.csv", metabolites="metabolites.csv")   # LOCATE is then the default task
 ```
 
+```python
+# YaMAS 16S output: pass its two files as the counts (read counts kept, lineages standardised).
+view = mp.analyze(("otu.csv", "taxonomy.csv"), "labels.csv")
+```
+
 Tasks (`goal`): `"preprocess"` (MIPMLP only), `"differ"` (miMic), `"predict"`
 (iMic), `"group"` (GIMIC) and `"metabolites"` (LOCATE). `mp.GOALS` lists them
 with what each needs.

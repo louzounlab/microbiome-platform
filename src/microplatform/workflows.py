@@ -205,7 +205,7 @@ def start_example_run(root: Path, requested_goal: str | None = None) -> runs.Run
 
 
 def analyze(
-    counts: str | Path,
+    counts: str | Path | tuple[str | Path, str | Path],
     labels: str | Path | None = None,
     goal: str | None = None,
     out_dir: str | Path = "microplatform-runs",
@@ -227,9 +227,12 @@ def analyze(
     already preprocessed); by default it is ``"as_is"`` exactly when the table already looks
     preprocessed (negative values, or samples adding up to different totals), so a table is never
     preprocessed twice without asking for it. ``view.preprocessing`` says which was used.
+    ``counts`` is a counts table, or YaMAS's 16S output as a pair ``("otu.csv", "taxonomy.csv")``
+    (in either order; the read counts are kept, and the lineages standardised: ``core/yamas.py``).
     Raises ``UserFacingError`` (with a message and a fix) if the data cannot be used.
     """
-    paths = [Path(p) for p in (counts, labels, metabolites) if p]
+    pair = list(counts) if isinstance(counts, (tuple, list)) else [counts]
+    paths = [Path(p) for p in (*pair, labels, metabolites) if p]
     run = start_run(Path(out_dir), sort_uploads([(p.name, p.read_bytes()) for p in paths]), goal)
     if preprocessing is not None:
         set_preprocessing(run, preprocessing)

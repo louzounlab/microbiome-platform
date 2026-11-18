@@ -46,6 +46,7 @@
     {% if meta.counts_layout == "yamas-16s" and meta.counts_details %}{% set y = meta.counts_details %}
       <li>Read as YaMAS 16S output: {{ y.files[0] }} ({{ y.otus|count }} OTUs × {{ y.samples|count }} samples) with the lineages from {{ y.files[1] }}, written in the standard form (k__…;p__…), and the read counts kept as they are.
         {{ y.otus|count }} OTUs carry {{ y.lineages|count }} different lineages; OTUs with the same lineage stay separate here, and MIPMLP groups them.{% if y.unassigned %} {{ y.unassigned|count }} OTU{{ "s" if y.unassigned != 1 }} had no taxonomy ("Unassigned"); MIPMLP leaves {{ "them" if y.unassigned != 1 else "it" }} out.{% endif %}</li>
+      {% if y.suffix_1 or y.suffix_2 %}<li>Note: {{ y.suffix_1|count }} sample ID{{ "s" if y.suffix_1 != 1 }} end{{ "s" if y.suffix_1 == 1 }} in _1 and {{ y.suffix_2|count }} in _2 ({{ y.suffix_both|count }} name{{ "s" if y.suffix_both != 1 }} with both). Every sample is kept as uploaded; if _1 and _2 mark copies of the same sample, remove the ones you don't want before uploading.</li>{% endif %}
     {% endif %}
     {% if view.labels %}{% for line in view.labels.summary() %}<li>{{ line }}</li>{% endfor %}
     {% else %}<li>No labels file (it is optional): the plan below shows what you can run without one.</li>{% endif %}
