@@ -90,7 +90,19 @@ def test_relative_abundance_is_passed_on_as_it_is_and_the_limitation_is_measured
     assert inputs.counts_details["below_low_percent"] == round((present < 0.1).mean() * 100, 1)
 
 
-def test_read_counts_are_kept_as_counts():
+def test_read_counts_are_refused_until_confirmed_on_a_real_counts_file():
+    assert metaphlan.COUNTS_VALIDATED is False
+    reads = dict(zip(SPECIES, [1200, 800, 0]))
+    with pytest.raises(InputError, match="not yet confirmed"):
+        sort_uploads([("sample.txt", read_stats_profile(reads))])
+
+
+@pytest.fixture
+def counts_on(monkeypatch):
+    monkeypatch.setattr(metaphlan, "COUNTS_VALIDATED", True)
+
+
+def test_read_counts_are_kept_as_counts(counts_on):
     reads = {"S1": [6000, 105, 0], "S2": [3995, 895, 990], "S3": [5, 0, 10]}
     species = {lin: [reads[s][i] for s in SAMPLES] for i, lin in enumerate(SPECIES)}
     inputs, counts = _counts("reads.tsv", merged_table(species))
@@ -101,7 +113,7 @@ def test_read_counts_are_kept_as_counts():
     assert profile.value_kind == "counts" and profile.median_reads > 0  # the depth checks apply
 
 
-def test_a_read_stats_profile_uses_its_estimated_reads():
+def test_a_read_stats_profile_uses_its_estimated_reads(counts_on):
     reads = dict(zip(SPECIES, [1200, 800, 0]))
     inputs, counts = _counts("sample.txt", read_stats_profile(reads))
     assert inputs.counts_details["values"] == "counts"

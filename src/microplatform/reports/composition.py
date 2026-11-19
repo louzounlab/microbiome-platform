@@ -13,7 +13,8 @@ table the tools use):
    ``MERGE_GTDB_VARIANTS``): GTDB variants (``Bacillota_A_368345``, ``Bacillota_C``) are merged into their
    base phylum (``Bacillota``), and an old and a new name of the same phylum (``KNOWN_PHYLA``: Firmicutes
    and Bacillota, as MetaPhlAn's database mixes them) into the one the table uses more. The analysis
-   itself (MIPMLP and the tools) keeps the real names. ``…_unclassified`` at phylum rank is no phylum.
+   itself (MIPMLP and the tools) keeps the real names. A phylum-rank ``…_unclassified`` (MetaPhlAn's
+   ``p__Bacteria_unclassified``) is not a phylum: it is counted in "Other", so every bar still adds up to 100%.
 2. **Top phyla** (``top_phyla``): the ``TOP_PHYLA`` phyla with the highest mean over all
    samples, most abundant first; the rest are summed as "Other", drawn last in grey.
 3. **Colours** (``phylum_colors``): one colour per phylum, the same in every panel, figure and
@@ -134,8 +135,10 @@ def phylum_percent(table: pd.DataFrame,
         if synonyms:
             phylum = phylum.T.groupby([synonyms.get(c, c) for c in phylum.columns], sort=False).sum().T
     totals = values.sum(axis=1) if not _all_ranks(ranks) else phylum.sum(axis=1)
-    phylum = phylum.drop(columns=[c for c in phylum.columns if str(c).lower() in {d.lower() for d in DROPPED}
-                                  or str(c).lower().endswith("_unclassified")])
+    phylum = phylum.drop(columns=[c for c in phylum.columns if str(c).lower() in {d.lower() for d in DROPPED}])
+    unclassified = [c for c in phylum.columns if str(c).lower().endswith("_unclassified")]
+    if unclassified:  # abundance known to be bacterial but with no phylum: shown in "Other", not left out
+        phylum = phylum.T.groupby([OTHER if c in unclassified else c for c in phylum.columns], sort=False).sum().T
     assigned = phylum.sum(axis=1)
     valid = assigned > 0
     unassigned = (1 - assigned[valid] / totals[valid]).clip(lower=0).mean() * 100 if valid.any() else 0.0

@@ -105,8 +105,10 @@ recognised by MetaPhlAn's `#mpa_…` line or its `clade_name` header. MetaPhlAn 
 the species (or, for SGBs, splits of them) and would count the same reads again. Lineages are written
 in the standard form, and an `UNCLASSIFIED` row is left out (the data check gives its share).
 
-- **Read counts (preferred):** MetaPhlAn's estimated reads (`metaphlan … -t rel_ab_w_read_stats`).
-  They are kept, so the depth checks work and MIPMLP normalises them as it does 16S counts.
+- **Read counts (preferred, not open yet):** MetaPhlAn's estimated reads (`metaphlan … -t
+  rel_ab_w_read_stats`). They will be kept as counts, so the depth checks work and MIPMLP normalises
+  them as it does 16S counts. This is switched off until it has been confirmed on a real counts file;
+  until then such a file gets a message saying so.
 - **Relative abundance (%)**, MetaPhlAn's default: used as it is, and the data check says what
   that limits. There is no sequencing depth, and MIPMLP's log (log10 of the value + 0.1) brings
   species below about 0.1% close to the value for "absent".

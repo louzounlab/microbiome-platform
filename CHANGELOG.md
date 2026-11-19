@@ -29,7 +29,9 @@ All notable changes to `microplatform`. The format follows
   `#mpa_…` line or `clade_name` header, with clades as rows or samples as rows, or one sample's profile.
   Only the species are kept (the other ranks are sums of them). Estimated read counts
   (`-t rel_ab_w_read_stats`) are kept as counts; relative abundances (%) are used as they are, and the
-  data check states what that limits.
+  data check states what that limits. The read-count form is switched off (`metaphlan.COUNTS_VALIDATED`)
+  until it has been confirmed on a real MetaPhlAn counts file. A phylum-rank `…_unclassified` is counted
+  in "Other" in the composition figures.
 - Overview composition figures: one phylum, one bar. GTDB variants (`Bacillota_A_368345`) are shown as
   their base phylum, and old/new names of one phylum (Firmicutes/Bacillota) as the one the table uses
   more; the caption says so. Display only (`composition.MERGE_GTDB_VARIANTS`).

@@ -112,10 +112,13 @@ def test_old_and_new_names_of_one_phylum_become_the_one_the_table_uses_more():
     assert "old and new names (e.g. Bacillota → Firmicutes)" in merged_note(removed["merged"])
 
 
-def test_unclassified_at_phylum_rank_is_no_phylum():
+def test_unclassified_at_phylum_rank_is_counted_in_other_not_left_out():
     percent, _ = phylum_percent(_relative({"k__Bacteria;p__Bacteria_unclassified": [1, 1],
                                            "k__Bacteria;p__Bacteroidota": [9, 9]}))
-    assert list(percent.columns) == ["Bacteroidota"]
+    assert sorted(percent.columns) == sorted(["Bacteroidota", OTHER])
+    assert percent.loc["s0", OTHER] == pytest.approx(10) and percent.loc["s0"].sum() == pytest.approx(100)
+    top = top_phyla(percent)
+    assert list(top.columns) == ["Bacteroidota", OTHER]  # "Other" stays last and grey
 
 
 # --- guards ---------------------------------------------------------------------------------------

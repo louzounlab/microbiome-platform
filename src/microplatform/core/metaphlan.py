@@ -16,6 +16,10 @@ The values are recognised as one of two forms:
   what that limits: no sequencing depth, and MIPMLP's log (log10 of value + 0.1) brings species below
   about 0.1% close to the value for "absent".
 
+**The read-count form is switched off** (``COUNTS_VALIDATED = False``) until it has been confirmed on a
+real MetaPhlAn counts file: such a file gets a clear message instead of an analysis. The code path is
+built and tested on constructed files; set the flag to True once the real file has confirmed it.
+
 Layouts accepted (all recognised by MetaPhlAn's ``#mpa_…`` line or a ``clade_name`` header):
 
 - clades as rows, one column per sample (``merge_metaphlan_tables.py``), optionally with
@@ -47,6 +51,7 @@ READS = "estimated_number_of_reads_from_the_clade"
 RELATIVE = "relative_abundance"
 IGNORED = {"clade_taxid", "ncbi_tax_id", "coverage", "additional_species"}  # per-clade columns, not samples
 UNCLASSIFIED = "unclassified"
+COUNTS_VALIDATED = False  # the read-count form, off until confirmed on a real MetaPhlAn counts file
 LOW_PERCENT = 0.1  # MIPMLP adds 0.1 before its log: % values below this end up close to "absent"
 _RANKS = re.compile(r"\s*[|,;]\s*")
 
@@ -137,6 +142,12 @@ def to_shared_format(name: str, content: bytes) -> tuple[pd.DataFrame, dict] | N
     whole = bool((array % 1 == 0).all())
     near_100 = bool(len(totals) and (np.abs(totals[totals > 0] - 100) < 1).all())
     values_kind = "counts" if whole and not near_100 else "relative"
+    if values_kind == "counts" and not COUNTS_VALIDATED:
+        raise MetaphlanError(
+            f"'{name}' holds MetaPhlAn read counts. Reading them is built but not yet confirmed on a real "
+            "MetaPhlAn counts file, so it is switched off for now.",
+            "Upload MetaPhlAn's relative abundances (its default output) for now; the data check will say "
+            "what that limits. Read counts will be accepted once they have been confirmed.")
     if values_kind == "relative" and (array > 100 + 1e-6).any():
         raise MetaphlanError(
             f"'{name}' holds values above 100 that are not whole numbers, so they are neither percentages "
