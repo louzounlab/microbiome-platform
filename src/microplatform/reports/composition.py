@@ -9,7 +9,11 @@ table the tools use):
    phylum rows, so nothing is counted twice. Columns with no phylum (``Bacteria``, ``Archaea``,
    ``Unassigned``, ``Unclassified``) are dropped, phyla are summed, samples that are left
    with nothing are dropped, and every sample is re-normalized to 100%. Values must be finite
-   and not negative.
+   and not negative. For display, one phylum gets one bar (unless ``merge_gtdb_variants=False``;
+   ``MERGE_GTDB_VARIANTS``): GTDB variants (``Bacillota_A_368345``, ``Bacillota_C``) are merged into their
+   base phylum (``Bacillota``), and an old and a new name of the same phylum (``KNOWN_PHYLA``: Firmicutes
+   and Bacillota, as MetaPhlAn's database mixes them) into the one the table uses more. The analysis
+   itself (MIPMLP and the tools) keeps the real names. ``…_unclassified`` at phylum rank is no phylum.
 2. **Top phyla** (``top_phyla``): the ``TOP_PHYLA`` phyla with the highest mean over all
    samples, most abundant first; the rest are summed as "Other", drawn last in grey.
 3. **Colours** (``phylum_colors``): one colour per phylum, the same in every panel, figure and
@@ -39,6 +43,11 @@ OTHER_GREY = "#BDBDBD"
 MEAN = "Mean"  # the right panel's one bar
 DROPPED = ("Bacteria", "Archaea", "Unassigned", "Unclassified")  # no phylum: left out (case-insensitive)
 SORT_BY = ("Firmicutes", "Bacillota")  # the same phylum, old and new name
+# GTDB splits some phyla into variants named by a capital-letter suffix and/or a numeric ID
+# (Bacillota_A_368345, Bacillota_C, Desulfobacterota_G_459543, Methanobacteriota_A_1229). For display they
+# are merged into the base phylum, so a phylum has one bar and its usual colour. Set to False to keep them.
+MERGE_GTDB_VARIANTS = True
+_GTDB_VARIANT = re.compile(r"^(?P<base>.+?)(?:_[A-Z])?(?:_\d+)?$")
 
 def _not_grey(color: str) -> bool:
     r, g, b = (int(color[i:i + 2], 16) for i in (1, 3, 5))
@@ -72,19 +81,27 @@ _SLOT = {name.lower(): i for i, names in enumerate(KNOWN_PHYLA) for name in name
 _RANKS = re.compile(r"\s*[;|,]\s*")
 _PREFIX = re.compile(r"^[a-z]__")
 
-__all__ = ["phylum_percent", "top_phyla", "phylum_colors", "composition_figure", "split_violin_figure"]
+__all__ = ["phylum_percent", "gtdb_base", "merged_note", "top_phyla", "phylum_colors", "composition_figure", "split_violin_figure"]
 
 
 class CompositionError(UserFacingError):
     """The table cannot be shown as relative abundance (e.g. negative, log-transformed values)."""
 
 
-def phylum_percent(table: pd.DataFrame) -> tuple[pd.DataFrame, dict]:
+def gtdb_base(phylum: str) -> str:
+    """'Bacillota_A_368345' -> 'Bacillota' (GTDB variant suffixes removed); other names unchanged."""
+    match = _GTDB_VARIANT.match(str(phylum))
+    return match["base"] if match else str(phylum)
+
+
+def phylum_percent(table: pd.DataFrame,
+                   merge_gtdb_variants: bool = MERGE_GTDB_VARIANTS) -> tuple[pd.DataFrame, dict]:
     """Samples × phyla in % (each row adds up to 100), and what was left out.
 
     ``table`` is samples × taxa, columns named by lineage, values counts or relative abundances.
     The second value says how many samples had nothing at phylum level (dropped) and the mean
-    share of each sample's total that had no phylum (``unassigned_percent``).
+    share of each sample's total that had no phylum (``unassigned_percent``), and which GTDB variants were
+    merged (``merged``: variant -> base phylum; empty if none).
     """
     values = table.apply(pd.to_numeric, errors="coerce")
     array = values.to_numpy(dtype=float)
@@ -99,9 +116,26 @@ def phylum_percent(table: pd.DataFrame) -> tuple[pd.DataFrame, dict]:
     else:
         keep = list(range(len(ranks)))
     names = [_phylum(ranks[i]) for i in keep]
+    variants: dict[str, str] = {}
+    if merge_gtdb_variants:
+        variants = {n: gtdb_base(n) for n in dict.fromkeys(names) if gtdb_base(n) != n}
+        names = [variants.get(n, n) for n in names]
     phylum = values.iloc[:, keep].T.groupby(names, sort=False).sum().T
+    synonyms: dict[str, str] = {}
+    if merge_gtdb_variants:
+        by_slot: dict[int, list[str]] = {}
+        for name in phylum.columns:
+            if (slot := _SLOT.get(str(name).lower())) is not None:
+                by_slot.setdefault(slot, []).append(name)
+        for same in by_slot.values():
+            if len(same) > 1:
+                main = max(same, key=lambda n: phylum[n].sum())
+                synonyms |= {n: main for n in same if n != main}
+        if synonyms:
+            phylum = phylum.T.groupby([synonyms.get(c, c) for c in phylum.columns], sort=False).sum().T
     totals = values.sum(axis=1) if not _all_ranks(ranks) else phylum.sum(axis=1)
-    phylum = phylum.drop(columns=[c for c in phylum.columns if str(c).lower() in {d.lower() for d in DROPPED}])
+    phylum = phylum.drop(columns=[c for c in phylum.columns if str(c).lower() in {d.lower() for d in DROPPED}
+                                  or str(c).lower().endswith("_unclassified")])
     assigned = phylum.sum(axis=1)
     valid = assigned > 0
     unassigned = (1 - assigned[valid] / totals[valid]).clip(lower=0).mean() * 100 if valid.any() else 0.0
@@ -110,7 +144,21 @@ def phylum_percent(table: pd.DataFrame) -> tuple[pd.DataFrame, dict]:
         raise CompositionError("No sample has any abundance at phylum level.",
                                "Check that the column names hold the taxonomy (k__…;p__…).")
     percent = phylum.div(phylum.sum(axis=1), axis=0) * 100
-    return percent, {"samples_dropped": int((~valid).sum()), "unassigned_percent": float(unassigned)}
+    return percent, {"samples_dropped": int((~valid).sum()), "unassigned_percent": float(unassigned),
+                     "merged": {"variants": variants, "synonyms": synonyms}}
+
+
+def merged_note(merged: dict[str, dict[str, str]]) -> str:
+    """One short sentence for the captions, with one example of each kind of merge ('' if none)."""
+    kinds = []
+    for key, what in (("variants", "GTDB variants"), ("synonyms", "old and new names")):
+        pairs = merged.get(key) or {}
+        if pairs:
+            variant, base = next(iter(pairs.items()))
+            kinds.append(f"{what} (e.g. {variant} → {base})")
+    if not kinds:
+        return ""
+    return f" Merged for display: {' and '.join(kinds)}; the analysis keeps the original names."
 
 
 def top_phyla(percent: pd.DataFrame, top_n: int = TOP_PHYLA) -> pd.DataFrame:

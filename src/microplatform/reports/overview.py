@@ -184,8 +184,10 @@ def _composition_figures(counts: pd.DataFrame, groups: pd.Series | None, dataset
                   "left out before the shares are computed.")
     if gone:
         notes += f" {gone:,} sample{'s' if gone != 1 else ''} with nothing at phylum level {'are' if gone != 1 else 'is'} left out."
-    figures = [composition.composition_figure(top, colors, dataset, notes, DESCRIPTIVE),
-               _composition_pie(top, groups.loc[top.index] if groups is not None else None, colors)]
+    merged = composition.merged_note(removed["merged"])  # GTDB variants shown as their base phylum
+    pie = _composition_pie(top, groups.loc[top.index] if groups is not None else None, colors)
+    figures = [composition.composition_figure(top, colors, dataset, notes + merged, DESCRIPTIVE),
+               replace(pie, caption=pie.caption + merged)]
     if split_violin and groups is not None:
         labelled = groups.loc[top.index]
         labelled = labelled[labelled != NO_LABEL]

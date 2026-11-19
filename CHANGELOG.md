@@ -25,6 +25,14 @@ All notable changes to `microplatform`. The format follows
 - CLAUDE.md (the assistant's working notes) is no longer in the repository.
 
 ### Added
+- **MetaPhlAn 4 output (shotgun) as an input** (`core/metaphlan.py`): one file, recognised by its
+  `#mpa_…` line or `clade_name` header, with clades as rows or samples as rows, or one sample's profile.
+  Only the species are kept (the other ranks are sums of them). Estimated read counts
+  (`-t rel_ab_w_read_stats`) are kept as counts; relative abundances (%) are used as they are, and the
+  data check states what that limits.
+- Overview composition figures: one phylum, one bar. GTDB variants (`Bacillota_A_368345`) are shown as
+  their base phylum, and old/new names of one phylum (Firmicutes/Bacillota) as the one the table uses
+  more; the caption says so. Display only (`composition.MERGE_GTDB_VARIANTS`).
 - **YaMAS 16S output as an input** (`core/yamas.py`): upload YaMAS's `otu.csv` and `taxonomy.csv`
   together (any names, any order; recognised by their shape), or pass them to
   `mp.analyze(("otu.csv", "taxonomy.csv"), ...)`: `counts` now also takes that pair (a single

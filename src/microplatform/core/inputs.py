@@ -16,6 +16,9 @@ recognised by its shape:
 - YaMAS output (``core/yamas.py``) is recognised first: for 16S, an ``otu.csv`` (OTU IDs × samples)
   and a ``taxonomy.csv`` (OTU IDs with a ``Taxon`` column) become one counts table in the shared
   format, with the read counts kept. The pair counts as one input (``MAX_FILES`` allows for it).
+- MetaPhlAn 4 output (shotgun; ``core/metaphlan.py``) is recognised as the file is read (by its
+  ``#mpa_…`` line or ``clade_name`` header): its species become a counts table in the shared format,
+  read counts kept when the file has them, relative abundances (%) passed on otherwise.
 A file added from the Plan step is the kind the user chose; only a counts table
 is refused there.
 """
@@ -33,7 +36,7 @@ import pandas as pd
 
 from microplatform.core.contract import INPUT_NAMES, LABEL_COLUMN, RANK_SEPARATOR, TAXONOMY_ROW
 from microplatform.core.errors import UserFacingError
-from microplatform.core import yamas
+from microplatform.core import metaphlan, yamas
 from microplatform.core.profiler import ProfileError, is_counts_table, read_table
 
 # One rank of a lineage: a rank letter and two underscores (k__, d__, p__, … s__), name optional.
@@ -41,7 +44,8 @@ RANK_PART = re.compile(r"^[A-Za-z]__")
 # The share of the columns (after the IDs) whose names must be lineages for a table to be read as
 # "taxonomy in the column names". A few others (e.g. "Unassigned") are kept, as written.
 MIN_LINEAGE_SHARE = 0.9
-COUNTS_LAYOUTS = {"row": "a 'taxonomy' row", "headers": "taxonomy in the column names", **yamas.LAYOUTS}
+COUNTS_LAYOUTS = {"row": "a 'taxonomy' row", "headers": "taxonomy in the column names", **yamas.LAYOUTS,
+                  metaphlan.LAYOUT: metaphlan.DESCRIPTION}
 
 ALLOWED_SUFFIXES = {".csv", ".tsv", ".txt"}
 EXCEL_SUFFIXES = {".xlsx", ".xls", ".xlsm"}
@@ -72,7 +76,7 @@ class Inputs:
     metabolites_name: str | None = None
     metabolites: pd.DataFrame | None = None  # index = sample ID (strings), one column per metabolite
     counts_layout: str = "row"  # "row", "headers" (taxonomy in the column names) or a YaMAS layout: COUNTS_LAYOUTS
-    counts_details: dict | None = None  # YaMAS: the files combined and their numbers (OTUs, unassigned, ...)
+    counts_details: dict | None = None  # YaMAS/MetaPhlAn: the files read and their numbers (OTUs, species, ...)
 
 
 def is_lineage(name: str) -> bool:
@@ -134,20 +138,22 @@ def sort_uploads(files: list[tuple[str, bytes]]) -> Inputs:
             "them, one labels file and one metabolite table.",
         )
 
-    tables = [(name, *_read_upload(name, content)) for name, content in files]
+    tables = [(name, *_read_upload(name, content)) for name, content in files]  # (name, table, layout, details)
     found: dict[TableKind, tuple[str, pd.DataFrame]] = {}
     layout, details = "row", None
     # YaMAS output first: its two files would otherwise look like a labels file and a metabolite table.
-    yamas_files = yamas.combine([(name, table) for name, table, _ in tables])
+    yamas_files = yamas.combine([(name, table) for name, table, read_as, _ in tables if read_as is None])
     if yamas_files is not None:
         combined, used = yamas_files
         found["counts"] = (" + ".join(combined.files), combined.counts)
         layout, details = combined.layout, {"files": list(combined.files), **combined.details}
         tables = [t for i, t in enumerate(tables) if i not in used]
-    for name, table, from_headers in tables:
+    for name, table, read_as, read_details in tables:
         kind = table_kind(table)
-        if from_headers and kind == "counts":
-            layout = "headers"
+        if read_as and kind == "counts" and "counts" not in found:
+            layout = read_as
+            if read_details:
+                details = {"files": [name], **read_details}
         if kind in found:
             raise InputError(
                 f"'{found[kind][0]}' and '{name}' both look like {_noun(kind)}s "
@@ -181,7 +187,7 @@ def read_metabolites_upload(name: str, content: bytes) -> pd.DataFrame:
 
 def read_added_upload(kind: TableKind, name: str, content: bytes) -> pd.DataFrame:
     """A file added to an existing run as ``kind`` (index = sample ID); a counts table is refused."""
-    table, _ = _read_upload(name, content)
+    table, _, _ = _read_upload(name, content)
     if table_kind(table) == "counts":
         raise InputError(
             f"'{name}' looks like a counts table ({LOOKS_LIKE['counts']}), not {INPUT_NAMES[kind]}.",
@@ -218,8 +224,10 @@ def _one_of_each(kind: TableKind) -> str:
     return f"Upload at most one {_noun(kind)}. {_expected(kind)}"
 
 
-def _read_upload(name: str, content: bytes) -> tuple[pd.DataFrame, bool]:
-    """The table, and whether its taxonomy came from the column names (then in the shared format)."""
+def _read_upload(name: str, content: bytes) -> tuple[pd.DataFrame, str | None, dict | None]:
+    """The table, how it was read (None as it is; "headers": the taxonomy came from the column names;
+    "metaphlan": MetaPhlAn output, species kept), and the numbers for the data check (MetaPhlAn only).
+    In every case the table is then in the shared format."""
     suffix = Path(name).suffix.lower()
     if suffix in EXCEL_SUFFIXES:
         raise InputError(
@@ -231,8 +239,16 @@ def _read_upload(name: str, content: bytes) -> tuple[pd.DataFrame, bool]:
             f"'{name}' is not a CSV or TSV file.",
             "Export the table as .csv (comma-separated) or .tsv (tab-separated).",
         )
+    try:
+        species = metaphlan.to_shared_format(name, content)
+    except metaphlan.MetaphlanError as exc:
+        raise InputError(exc.message, exc.fix) from exc
+    if species is not None:
+        shared, details = species
+        return read_table(io.BytesIO(shared.to_csv(index=False).encode("utf-8"))), metaphlan.LAYOUT, details
     combined = with_taxonomy_row(content)
     try:
-        return read_table(io.BytesIO(combined if combined is not None else content)), combined is not None
+        return (read_table(io.BytesIO(combined if combined is not None else content)),
+                "headers" if combined is not None else None, None)
     except ProfileError as exc:
         raise InputError(f"'{name}': {exc.message}", exc.fix) from exc

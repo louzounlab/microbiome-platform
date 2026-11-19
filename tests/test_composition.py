@@ -13,6 +13,8 @@ from microplatform.reports.composition import (
     PALETTES,
     TOP_PHYLA,
     CompositionError,
+    gtdb_base,
+    merged_note,
     phylum_colors,
     phylum_percent,
     sort_samples,
@@ -76,6 +78,44 @@ def test_metaphlan_uses_only_the_phylum_rows(sep):
     })
     percent, _ = phylum_percent(table)
     assert percent.loc["s0"].tolist() == [60, 40] and percent.loc["s1"].tolist() == [30, 70]
+
+
+# --- one phylum, one bar (display only) ------------------------------------------------------------
+
+@pytest.mark.parametrize("variant, base", [
+    ("Bacillota_A_368345", "Bacillota"), ("Bacillota_C", "Bacillota"), ("Desulfobacterota_G_459543", "Desulfobacterota"),
+    ("Methanobacteriota_A_1229", "Methanobacteriota"), ("Bacteroidota", "Bacteroidota"),
+    ("Candidatus_Saccharibacteria", "Candidatus_Saccharibacteria"), ("SAR324", "SAR324"),
+])
+def test_gtdb_base(variant, base):
+    assert gtdb_base(variant) == base
+
+
+def test_gtdb_variants_are_merged_for_display_and_the_note_says_so():
+    table = _relative({"k__Bacteria;p__Bacillota_A_368345": [30, 10], "k__Bacteria;p__Bacillota_C": [10, 10],
+                       "k__Bacteria;p__Bacteroidota": [60, 80]})
+    percent, removed = phylum_percent(table)
+    assert list(percent.columns) == ["Bacillota", "Bacteroidota"]
+    assert percent.loc["s0", "Bacillota"] == pytest.approx(40)
+    assert removed["merged"]["variants"] == {"Bacillota_A_368345": "Bacillota", "Bacillota_C": "Bacillota"}
+    assert "GTDB variants (e.g. Bacillota_A_368345 → Bacillota)" in merged_note(removed["merged"])
+    kept, removed = phylum_percent(table, merge_gtdb_variants=False)  # easy to switch off
+    assert "Bacillota_A_368345" in kept.columns and merged_note(removed["merged"]) == ""
+
+
+def test_old_and_new_names_of_one_phylum_become_the_one_the_table_uses_more():
+    table = _relative({"k__Bacteria;p__Firmicutes": [50, 50], "k__Bacteria;p__Bacillota": [1, 1],
+                       "k__Bacteria;p__Bacteroidota": [49, 49]})
+    percent, removed = phylum_percent(table)
+    assert list(percent.columns) == ["Firmicutes", "Bacteroidota"]
+    assert removed["merged"]["synonyms"] == {"Bacillota": "Firmicutes"}
+    assert "old and new names (e.g. Bacillota → Firmicutes)" in merged_note(removed["merged"])
+
+
+def test_unclassified_at_phylum_rank_is_no_phylum():
+    percent, _ = phylum_percent(_relative({"k__Bacteria;p__Bacteria_unclassified": [1, 1],
+                                           "k__Bacteria;p__Bacteroidota": [9, 9]}))
+    assert list(percent.columns) == ["Bacteroidota"]
 
 
 # --- guards ---------------------------------------------------------------------------------------

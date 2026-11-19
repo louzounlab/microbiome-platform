@@ -98,6 +98,19 @@ table, that is four files. Every sample is kept as uploaded; if some sample IDs 
 `_1` or `_2`, the data check notes how many (in case they mark copies of the same sample,
 which you would remove before uploading).
 
+**MetaPhlAn 4 output (shotgun)**: upload the table as MetaPhlAn wrote it (a merged table with one
+column per sample, the same table turned so samples are rows, or one sample's profile). It is
+recognised by MetaPhlAn's `#mpa_…` line or its `clade_name` header. MetaPhlAn lists every rank
+(kingdom, phylum, … species, SGB); only the **species** are kept, since the other ranks are sums of
+the species (or, for SGBs, splits of them) and would count the same reads again. Lineages are written
+in the standard form, and an `UNCLASSIFIED` row is left out (the data check gives its share).
+
+- **Read counts (preferred):** MetaPhlAn's estimated reads (`metaphlan … -t rel_ab_w_read_stats`).
+  They are kept, so the depth checks work and MIPMLP normalises them as it does 16S counts.
+- **Relative abundance (%)**, MetaPhlAn's default: used as it is, and the data check says what
+  that limits. There is no sequencing depth, and MIPMLP's log (log10 of the value + 0.1) brings
+  species below about 0.1% close to the value for "absent".
+
 **Labels file** (optional): sample IDs in the first column, and the outcome in
 a column named `Tag`. Binary (sick/healthy), categorical (a few groups) and
 continuous (a number such as age) are all recognised.
@@ -168,7 +181,10 @@ Templates of all three are on the website (in every error message, and under
   always has the same colour, in every figure and every dataset (the lab's
   palette by default; in the package, `palette="colorblind"` gives a
   colour-blind-safer set). A table that is already log-transformed (negative
-  values) gets no composition figures.
+  values) gets no composition figures. In these figures only, one phylum gets one bar: GTDB
+  variants (`Bacillota_A_368345`, `Bacillota_C`) are shown as their base phylum (`Bacillota`), and
+  an old and a new name of one phylum (Firmicutes and Bacillota) as the one your table uses more;
+  the caption says when this happened. The analysis keeps the original names.
 
 ## How good are LOCATE's predictions?
 

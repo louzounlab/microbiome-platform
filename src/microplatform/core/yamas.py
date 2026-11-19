@@ -15,8 +15,8 @@ all see raw counts. OTUs that end up with the same lineage stay separate columns
 itself (its sub-PCA uses the variation among them), and richness counts OTUs.
 
 The pair is recognised by its shape (``find``), before the uploads are sorted into counts, labels and
-metabolites. Each YaMAS format is one entry of ``FORMATS``; shotgun output will be added as another
-entry once it is built against a real YaMAS shotgun file.
+metabolites. Each YaMAS format is one entry of ``FORMATS``. Shotgun output (MetaPhlAn 4) is a single
+file and is read in ``core/metaphlan.py``.
 """
 
 from __future__ import annotations
@@ -238,7 +238,6 @@ class YamasFormat:
 
 FORMATS: tuple[YamasFormat, ...] = (
     YamasFormat("yamas-16s", "YaMAS 16S output (otu.csv + taxonomy.csv)", _find_16s, counts_from_16s),
-    # Shotgun: to be added here, built against a real YaMAS shotgun file.
 )
 LAYOUTS = {f.layout: f.description for f in FORMATS}
 
