@@ -25,6 +25,11 @@ All notable changes to `microplatform`. The format follows
 - CLAUDE.md (the assistant's working notes) is no longer in the repository.
 
 ### Added
+- **Reads vs taxa detected** (data quality, read counts only): one dot per sample, with the low
+  regions shaded (below 25% of the median reads or taxa, or under 1,000 reads; `profiler.LOW_FRACTION`
+  and `MIN_READS`), weak samples coloured and named. The data check lists the same samples as an amber,
+  non-blocking warning (`profiler.low_samples`, one rule for both). New figure kind `depth_taxa`;
+  `reports.figures.reads_vs_taxa`.
 - **MetaPhlAn 4 output (shotgun) as an input** (`core/metaphlan.py`): one file, recognised by its
   `#mpa_…` line or `clade_name` header, with clades as rows or samples as rows, or one sample's profile.
   Only the species are kept (the other ranks are sums of them). Estimated read counts

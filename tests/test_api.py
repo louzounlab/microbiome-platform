@@ -106,7 +106,7 @@ def test_analyze_runs_a_whole_analysis_without_the_website(tmp_path):
     assert (view.run.path / "processed.csv").exists()
     # With labels, the recommended task is miMic (its own cladogram first); data-quality figures come with every run.
     assert view.engine["tool"] == "miMic"
-    assert {f.name for f in view.figures} == {"reads_per_sample", "mimic_cladogram", "mimic_significant_taxa",
+    assert {f.name for f in view.figures} == {"reads_per_sample", "reads_vs_taxa", "mimic_cladogram", "mimic_significant_taxa",
                                                "mimic_rp_sp", *OVERVIEW}
 
 

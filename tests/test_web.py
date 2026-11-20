@@ -158,6 +158,7 @@ def test_relative_abundance_has_no_sequencing_depth(client):
     assert "Sequencing depth: median" not in page and "median sequencing depth" not in page
     run = Path(client.application.config["RUNS_DIR"]) / url.rsplit("/", 1)[1]
     assert not list((run / "figures").glob("reads_per_sample*"))
+    assert not list((run / "figures").glob("reads_vs_taxa*")) and "Reads vs taxa detected" not in page
     assert client.get(f"{url}/figures/reads_per_sample.csv").status_code == 404
     figures = json.loads((run / "figures" / "figures.json").read_text(encoding="utf-8"))
     entries = figures if isinstance(figures, list) else list(figures.values())

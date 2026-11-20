@@ -30,6 +30,11 @@ MAX_CATEGORIES = 10
 
 # A sample with more than this many times the median read depth is flagged.
 DEPTH_OUTLIER = 10
+# Weak samples (read counts only; ``low_samples``): a sample is low on an axis when it has fewer reads, or
+# fewer taxa detected, than this share of the dataset's median; and always when under MIN_READS reads.
+# Both are easy to tune (the professor may adjust the sensitivity); the figure and the data check follow.
+LOW_FRACTION = 0.25
+MIN_READS = 1000
 
 Severity = Literal["error", "warning"]
 ValueKind = Literal["counts", "relative", "transformed"]
@@ -263,6 +268,22 @@ def profile_counts(raw: pd.DataFrame) -> CountsProfile:
             "counts, so unusually deep samples stand out in every analysis.",
         ))
 
+    weak = low_samples(values.set_axis(sample_ids, axis=0)) if kind == "counts" else None
+    if weak is not None and weak.flagged:
+        both = weak.flags[weak.flags == LOW_BOTH].index.tolist()
+        examples = list(dict.fromkeys(both + weak.flagged))[:3]  # failed-looking samples first
+        issues.append(Issue(
+            "warning",
+            f"{len(weak.flagged)} {'sample is' if len(weak.flagged) == 1 else 'samples are'} low on reads or on taxa "
+            f"detected (under {weak.reads_cut:,.0f} reads or under {weak.taxa_cut:,.0f} taxa: "
+            f"{LOW_FRACTION:.0%} of the median{f', or under {MIN_READS:,} reads' if weak.reads_cut == MIN_READS else ''})"
+            + (f"; {len(both)} {'is' if len(both) == 1 else 'are'} low on both, which usually means a failed sample"
+               if both else "")
+            + f" (e.g. {', '.join(repr(e) for e in examples)}).",
+            "Look at them in the 'Reads vs taxa detected' figure. Few taxa with normal reads can be real "
+            "(a low-diversity sample), so check before removing any.",
+        ))
+
     depth, coverage = _taxonomy_depth(taxonomy) if taxonomy is not None else (0, {r: 0.0 for r in RANKS})
 
     return CountsProfile(
@@ -344,6 +365,46 @@ def profile_labels(tags: pd.DataFrame, sample_ids: list[str]) -> LabelProfile:
         issues=issues,
         values=matched.rename(LABEL_COLUMN),
     )
+
+
+LOW_READS, LOW_TAXA, LOW_BOTH, IN_RANGE = "low reads", "low taxa", "low on both", "within range"
+
+
+@dataclass(frozen=True)
+class LowSamples:
+    """Reads and taxa detected per sample, the two cut-offs, and each sample's flag (``low_samples``)."""
+
+    reads: pd.Series  # total reads per sample (samples with at least one read)
+    taxa: pd.Series  # taxa detected (count > 0) per sample
+    reads_cut: float  # low below this
+    taxa_cut: float
+    flags: pd.Series  # IN_RANGE, LOW_READS, LOW_TAXA or LOW_BOTH, per sample
+    no_reads: int  # samples with no reads at all: left out here (the data check has its own warning)
+
+    @property
+    def flagged(self) -> list[str]:
+        return self.flags[self.flags != IN_RANGE].index.tolist()
+
+
+def low_samples(counts: pd.DataFrame, fraction: float = LOW_FRACTION, min_reads: float = MIN_READS) -> LowSamples:
+    """Which samples look weak, from read counts (samples × taxa).
+
+    A sample is low on reads below ``max(min_reads, fraction × median reads)``, and low on taxa below
+    ``fraction × median taxa detected``; medians over the samples with at least one read. Low on both
+    usually means a failed sample; few taxa with normal reads can be a real low-diversity sample.
+    """
+    values = counts.apply(pd.to_numeric, errors="coerce").fillna(0)
+    reads = values.sum(axis=1)
+    has_reads = reads > 0
+    reads, taxa = reads[has_reads], (values[has_reads] > 0).sum(axis=1)
+    reads_cut = max(float(min_reads), fraction * float(reads.median())) if len(reads) else float(min_reads)
+    taxa_cut = fraction * float(taxa.median()) if len(taxa) else 0.0
+    low_r, low_t = reads < reads_cut, taxa < taxa_cut
+    flags = pd.Series(IN_RANGE, index=reads.index)
+    flags[low_r] = LOW_READS
+    flags[low_t] = LOW_TAXA
+    flags[low_r & low_t] = LOW_BOTH
+    return LowSamples(reads, taxa, reads_cut, taxa_cut, flags, int((~has_reads).sum()))
 
 
 def count_matrix(raw: pd.DataFrame) -> pd.DataFrame:

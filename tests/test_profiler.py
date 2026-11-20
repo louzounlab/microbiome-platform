@@ -4,7 +4,10 @@ import pandas as pd
 import pytest
 
 from microplatform.core.profiler import (
+    LOW_FRACTION,
+    MIN_READS,
     ProfileError,
+    low_samples,
     profile_counts,
     profile_labels,
     read_table,
@@ -59,6 +62,34 @@ def test_example_flags_its_depth_outlier(example):
     warnings = [i for i in profile_counts(example[0]).issues if "median sequencing depth" in i.message]
     assert len(warnings) == 1
     assert "a498" in warnings[0].message and warnings[0].fix
+
+
+def test_the_low_sample_defaults():
+    assert (LOW_FRACTION, MIN_READS) == (0.25, 1000)  # approved 20.11; change here to tune the sensitivity
+
+
+def test_weak_samples_are_a_non_blocking_warning():
+    rows = {f"s{i:02d}": [250 + i] * 40 for i in range(12)}
+    rows["failed"] = [20] * 5 + [0] * 35
+    profile = profile_counts(make_counts(rows, [TAX] * 40))
+    weak = [i for i in profile.issues if "low on reads or on taxa" in i.message]
+    assert len(weak) == 1 and weak[0].level == "warning" and profile.ok
+    assert "1 is low on both" in weak[0].message and "'failed'" in weak[0].message
+    assert "check before removing" in weak[0].fix
+
+
+def test_no_weak_sample_warning_for_relative_abundances():
+    rows = {f"s{i:02d}": [1 / 40] * 40 for i in range(12)}
+    rows["odd"] = [0.2] * 5 + [0] * 35
+    profile = profile_counts(make_counts(rows, [TAX] * 40))
+    assert profile.value_kind == "relative"
+    assert not any("low on reads" in i.message for i in profile.issues)
+
+
+def test_under_1000_reads_is_always_low():
+    counts = pd.DataFrame({"t0": [500, 600, 700, 800], "t1": [100, 100, 100, 100]}, index=list("abcd"))
+    weak = low_samples(counts)
+    assert weak.reads_cut == MIN_READS and set(weak.flagged) == set("abcd")
 
 
 def test_summary_is_plain_language(example):

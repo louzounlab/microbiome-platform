@@ -33,10 +33,12 @@ import plotly
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 from matplotlib.figure import Figure as MplFigure
+from matplotlib.lines import Line2D
 from matplotlib.patches import Patch, Rectangle
 
 from microplatform.core.preprocessing import PreprocessSettings
-from microplatform.core.profiler import value_kind
+from microplatform.core.profiler import (IN_RANGE, LOW_BOTH, LOW_FRACTION, LOW_READS, LOW_TAXA, MIN_READS,
+                                         low_samples, value_kind)
 
 # Shipped with plotly; the website serves it so interactive figures work offline.
 PLOTLY_JS = Path(plotly.__file__).parent / "package_data" / "plotly.min.js"
@@ -70,7 +72,7 @@ SHADE = "#e6eceb"  # a light band behind rows that a figure marks (e.g. grouped_
 PLOTLY_CONFIG = {"displaylogo": False, "showSendToCloud": False, "responsive": True}
 
 Kind = Literal["bar", "histogram", "barh", "column", "scatter", "line", "stacked", "pie", "box", "composition",
-               "violin", "grouped_barh"]
+               "violin", "grouped_barh", "depth_taxa"]
 HIGH_DPI = 300  # composition figures, as in the lab's own figure scripts
 Section = Literal["quality", "findings", "overview"]
 
@@ -98,6 +100,10 @@ class Figure:
     grouped_barh  per label ``y`` (in row order, first on top), one horizontal bar per ``color_by``
                value side by side, value ``x`` written at each bar's end; ``shade`` lists labels to set
                on a light band, named by ``shade_label``
+    depth_taxa one point per sample: reads ``x`` (log scale) against taxa detected ``y``, coloured by the
+               ``color_by`` flag (``colors``); ``marker`` and ``hline`` are the two low cut-offs, drawn as
+               light bands with a tinted corner where both are low; ``label`` names the samples (on hover;
+               on the plot for those with ``named_on_plot``)
 
     ``colors`` fixes the colour of each value (of ``color_by``, of the pie's ``x``, or of the box's
     ``group_by``), so a taxon or a group keeps one colour across figures.
@@ -194,7 +200,9 @@ def preprocessing_figures(counts: pd.DataFrame, settings: PreprocessSettings) ->
     same total) or transformed values, ``reads_per_sample`` is not made (the same rule as the data
     check, ``profiler.value_kind``; the page shows ``CountsProfile.depth_note`` instead).
     """
-    return [_reads_per_sample(counts)] if value_kind(counts) == "counts" else []
+    if value_kind(counts) != "counts":
+        return []
+    return [_reads_per_sample(counts), reads_vs_taxa(counts)]
 
 
 def _reads_per_sample(counts: pd.DataFrame) -> Figure:
@@ -209,6 +217,143 @@ def _reads_per_sample(counts: pd.DataFrame) -> Figure:
         x_label="Samples (sorted by depth)", y_label="Total reads (log scale)", log_y=True,
         hover="%{x}<br>%{y:,.0f} reads<extra></extra>",
     )
+
+
+# reads_vs_taxa: the flags' colours (the site's plot colours, recoloured for dark mode on the page), and
+# at most this many flagged samples named on the plot (the most extreme first; every sample on hover).
+FLAG_COLORS = ((IN_RANGE, ACCENT), (LOW_READS, CONTRAST), (LOW_TAXA, CONTRAST), (LOW_BOTH, MARKER))
+MAX_POINT_LABELS = 10
+# The corner where both are low: red at this opacity on the plot's background. The bands stop at the corner (a
+# tint laid over a band mixes to grey in dark mode).
+CORNER_OPACITY = 0.3
+
+
+def reads_vs_taxa(counts: pd.DataFrame, fraction: float = LOW_FRACTION, min_reads: float = MIN_READS) -> Figure:
+    """Reads against taxa detected, per sample, with the low regions shaded (``profiler.low_samples``)."""
+    weak = low_samples(counts, fraction, min_reads)
+    data = pd.DataFrame({"sample": weak.reads.index.astype(str), "reads": weak.reads.to_numpy(),
+                         "taxa": weak.taxa.to_numpy(), "flag": weak.flags.to_numpy()})
+    # Name the flagged samples, the furthest below the cut-offs first.
+    depth = data["reads"] / weak.reads_cut + data["taxa"] / max(weak.taxa_cut, 1e-9)
+    named = depth[data["flag"] != IN_RANGE].nsmallest(MAX_POINT_LABELS).index
+    data["named_on_plot"] = data.index.isin(named)
+    rule = f"{fraction:.0%} of the median"
+    floor = f", or under {min_reads:,.0f} reads" if min_reads else ""
+    gone = weak.no_reads
+    left_out = (f" {gone:,} sample{'s' if gone != 1 else ''} with no reads {'are' if gone != 1 else 'is'} "
+                "not shown (see the data check)." if gone else "")
+    return Figure(
+        name="reads_vs_taxa",
+        title="Reads vs taxa detected (per sample)",
+        caption=f"Each dot is a sample. Shaded areas are below {rule}{floor}; a sample in the corner where "
+                "both are low most likely failed. Few taxa with normal reads can be real (a low-diversity "
+                f"sample), so check before removing.{left_out} {DESCRIPTIVE}",
+        details=f"Low on reads: under {weak.reads_cut:,.0f} reads (the larger of {min_reads:,.0f} and {rule} "
+                f"of {weak.reads.median():,.0f}). Low on taxa: under {weak.taxa_cut:,.0f} taxa detected "
+                f"({rule} of {weak.taxa.median():,.0f}; a taxon counts when it has at least one read). The same "
+                "rule gives the data check's warning.",
+        data=data, kind="depth_taxa", x="reads", y="taxa", color_by="flag", label="sample",
+        x_label="Total reads per sample (log scale)", y_label="Taxa detected per sample",
+        marker=(weak.reads_cut, f"{weak.reads_cut:,.0f} reads"), hline=(weak.taxa_cut, f"{weak.taxa_cut:,.0f} taxa"),
+        colors=FLAG_COLORS, hover="%{customdata}<br>%{x:,.0f} reads<br>%{y:,} taxa<extra></extra>",
+    )
+
+
+def _depth_taxa_legend(fig: Figure) -> list[tuple[str, str]]:
+    """(legend text, colour), with how many samples each has."""
+    flags = fig.data[fig.color_by]
+    one = int(flags.isin([LOW_READS, LOW_TAXA]).sum())
+    return [("Within range", ACCENT), (f"Low on reads or on taxa ({one})", CONTRAST),
+            (f"Low on both: likely failed ({int((flags == LOW_BOTH).sum())})", MARKER)]
+
+
+def _depth_taxa_limits(fig: Figure) -> tuple[float, float, float]:
+    """x from half the lowest of (reads, cut-off) to 1.6 x the highest; y from 0 to 1.1 x the highest."""
+    reads = fig.data[fig.x]
+    low = min(float(reads.min()) if len(reads) else fig.marker[0], fig.marker[0]) / 2
+    high = (float(reads.max()) if len(reads) else fig.marker[0]) * 1.6
+    top = max(float(fig.data[fig.y].max()) if len(reads) else 0.0, fig.hline[0]) * 1.1 or 1.0
+    return low, high, top
+
+
+def _depth_taxa_regions(low, high, top, reads_cut, taxa_cut) -> list[tuple]:
+    """(x0, x1, y0, y1, colour, opacity): the low-reads band, the low-taxa band, and the corner (low on both)."""
+    return [(low, reads_cut, taxa_cut, top, SHADE, 1.0), (reads_cut, high, 0, taxa_cut, SHADE, 1.0),
+            (low, reads_cut, 0, taxa_cut, MARKER, CORNER_OPACITY)]
+
+
+def _write_depth_taxa(fig: Figure, out_dir: Path) -> None:
+    low, high, top = _depth_taxa_limits(fig)
+    reads_cut, taxa_cut = fig.marker[0], fig.hline[0]
+    colors = dict(fig.colors)
+    with matplotlib.rc_context({"svg.fonttype": "none", "font.size": 10}):
+        mpl = MplFigure(figsize=(10, 5), layout="constrained")
+        ax = mpl.add_subplot()
+        ax.set_xscale("log")
+        for x0, x1, y0, y1, color, alpha in _depth_taxa_regions(low, high, top, reads_cut, taxa_cut):
+            ax.add_patch(Rectangle((x0, y0), x1 - x0, y1 - y0, color=color, alpha=alpha, zorder=0, linewidth=0))
+        ax.axvline(reads_cut, color=BOX_LINE, linestyle="--", linewidth=1, zorder=1)
+        ax.axhline(taxa_cut, color=BOX_LINE, linestyle="--", linewidth=1, zorder=1)
+        ax.annotate(fig.marker[1], (reads_cut, 1), xycoords=("data", "axes fraction"), xytext=(4, -4),
+                    textcoords="offset points", va="top", color=BOX_LINE, fontsize=8)
+        ax.annotate(fig.hline[1], (1, taxa_cut), xycoords=("axes fraction", "data"), xytext=(-4, 3),
+                    textcoords="offset points", ha="right", color=BOX_LINE, fontsize=8)
+        ax.scatter(fig.data[fig.x], fig.data[fig.y], c=[colors[f] for f in fig.data[fig.color_by]], s=28,
+                   alpha=0.9, edgecolors="white", linewidths=0.5, zorder=3)
+        for _, row in fig.data[fig.data["named_on_plot"]].iterrows():
+            ax.annotate(row[fig.label], (row[fig.x], row[fig.y]), xytext=(4, 3), textcoords="offset points",
+                        fontsize=8, color=BOX_LINE, zorder=4)
+        ax.set_xlim(low, high)
+        ax.set_ylim(0, top)
+        ax.xaxis.set_major_formatter(matplotlib.ticker.StrMethodFormatter("{x:,.0f}"))
+        ax.legend(handles=[Line2D([], [], marker="o", linestyle="", color=c, label=t)
+                           for t, c in _depth_taxa_legend(fig)],
+                  frameon=False, fontsize=8.5, ncols=3, loc="lower left", bbox_to_anchor=(0, 1.0),
+                  handletextpad=0.2, columnspacing=1.2, borderaxespad=0.2)
+        mpl.suptitle(fig.title, x=0.02, ha="left", fontweight="bold")
+        ax.set_xlabel(fig.x_label)
+        ax.set_ylabel(fig.y_label)
+        ax.spines[["top", "right"]].set_visible(False)
+        _save(mpl, fig, out_dir)
+
+
+def _plotly_depth_taxa(fig: Figure) -> go.Figure:
+    low, high, top = _depth_taxa_limits(fig)
+    reads_cut, taxa_cut = fig.marker[0], fig.hline[0]
+    out = go.Figure()
+    for x0, x1, y0, y1, color, alpha in _depth_taxa_regions(low, high, top, reads_cut, taxa_cut):
+        out.add_shape(type="rect", x0=x0, x1=x1, y0=y0, y1=y1, fillcolor=color, opacity=alpha, line={"width": 0},
+                      layer="below")
+    flags = fig.data[fig.color_by]
+    groups = (flags == IN_RANGE, flags.isin([LOW_READS, LOW_TAXA]), flags == LOW_BOTH)
+    for (text, color), members in zip(_depth_taxa_legend(fig), groups):
+        rows = fig.data[members]
+        out.add_trace(go.Scatter(
+            x=rows[fig.x], y=rows[fig.y], mode="markers+text", name=text, customdata=rows[fig.label],
+            text=rows[fig.label].where(rows["named_on_plot"], ""), textposition="top right", textfont={"size": 11, "color": BOX_LINE},
+            marker={"color": color, "size": 8, "opacity": 0.9, "line": {"color": "white", "width": 0.5}},
+            hovertemplate=fig.hover, cliponaxis=False,
+        ))
+    out.add_vline(x=reads_cut, line_dash="dash", line_color=BOX_LINE, line_width=REFERENCE_LINE, opacity=1)
+    # On a log axis plotly places annotations in log10 units (add_vline's own label would land off the plot).
+    out.add_annotation(x=float(np.log10(reads_cut)), y=1, xref="x", yref="paper", text=fig.marker[1],
+                       showarrow=False, xanchor="left", yanchor="top", xshift=4,
+                       font={"color": BOX_LINE, "size": 11})
+    out.add_hline(y=taxa_cut, line_dash="dash", line_color=BOX_LINE, line_width=REFERENCE_LINE, opacity=1,
+                  annotation_text=fig.hline[1], annotation_position="top right",
+                  annotation_font={"color": BOX_LINE, "size": 11})
+    out.update_layout(
+        title={"text": _title(fig), "x": 0, "xanchor": "left"}, template="simple_white",
+        xaxis_title=fig.x_label, yaxis_title=fig.y_label, margin={"l": 60, "r": 20, "t": 50, "b": 50},
+        legend={"orientation": "h", "x": 0, "y": 1.02, "yanchor": "bottom"},  # above the plot
+        height=480,  # fixed, so a legend that wraps on a narrow screen does not squeeze the plot
+    )
+    ticks = [m * 10 ** k for k in range(int(np.floor(np.log10(low))), int(np.ceil(np.log10(high))) + 1)
+             for m in (1, 2, 5) if low <= m * 10 ** k <= high]  # 1, 2, 5 per decade: no crowding
+    out.update_xaxes(type="log", range=[float(np.log10(low)), float(np.log10(high))],
+                     tickvals=ticks, ticktext=[f"{t:,}" for t in ticks])
+    out.update_yaxes(range=[0, top])
+    return out
 
 
 def taxa_prevalence(counts: pd.DataFrame, settings: PreprocessSettings, section: Section = "quality") -> Figure:
@@ -314,7 +459,7 @@ def load_manifest(figures_dir: Path) -> list[ExportedFigure]:
 
 
 def _is_wide(fig: Figure) -> bool:
-    if fig.kind in ("stacked", "composition", "violin"):
+    if fig.kind in ("stacked", "composition", "violin", "depth_taxa"):  # depth_taxa: room for the named dots
         return True
     if fig.kind == "box":
         return fig.facet is not None and fig.data[fig.facet].nunique() > 1
@@ -407,6 +552,9 @@ def _group_colors(fig: Figure) -> tuple[list[str], list[tuple[str, str]]]:
 
 def _write_static(fig: Figure, out_dir: Path) -> None:
     # The object-oriented matplotlib API (no pyplot) is safe inside a web server.
+    if fig.kind == "depth_taxa":
+        _write_depth_taxa(fig, out_dir)
+        return
     if fig.kind in ("composition", "violin"):
         with matplotlib.rc_context({"svg.fonttype": "none"}):
             (_write_composition if fig.kind == "composition" else _write_violin)(fig, out_dir)
@@ -750,6 +898,8 @@ def to_plotly(fig: Figure) -> go.Figure:
         return _plotly_composition(fig)
     if fig.kind == "violin":
         return _plotly_violin(fig)
+    if fig.kind == "depth_taxa":
+        return _plotly_depth_taxa(fig)
     out = go.Figure()
     if fig.kind == "stacked":
         bars, ticks = _stacked_layout(fig)

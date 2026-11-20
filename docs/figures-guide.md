@@ -36,6 +36,21 @@ showing the data) or a **statistical test** (a yes/no question answered with a p
   (possible contamination). A smooth staircase is healthy.
 - **Type:** descriptive. Shown only when the upload is raw read counts.
 
+### Reads vs taxa detected (data quality)
+- **What it shows:** one dot per sample: its total reads against how many taxa were detected in it
+  (taxa with at least one read). It is for spotting weak samples.
+- **Axes:** x = total reads per sample, a count, on a **log scale**. y = taxa detected, a count,
+  from 0.
+- **How to read it:** the shaded bands are the low regions: fewer reads than 25% of the median (or
+  under 1,000 reads), or fewer taxa than 25% of the median. Dashed lines mark the two cut-offs. A dot in
+  the tinted corner, low on both, most likely failed (red). A dot low on one axis is amber. Up to
+  10 flagged samples are named on the plot; every dot shows its name on hover, and the CSV lists every
+  sample with its flag. Few taxa with normal reads can be real (a low-diversity sample), so check
+  before removing a sample. The data check lists the same samples as an amber warning.
+- **Tuning:** the 25% and the 1,000 reads are `LOW_FRACTION` and `MIN_READS` in `core/profiler.py`
+  (in the package, `reads_vs_taxa(counts, fraction=…, min_reads=…)`).
+- **Type:** descriptive. Shown only when the upload is raw read counts.
+
 ### Composition of each sample (phylum), the stacked bars
 - **What it shows:** what each sample is made of, at the phylum level (the broad bacterial
   groups). Left panel: one bar per sample. Right panel: the average of all samples.

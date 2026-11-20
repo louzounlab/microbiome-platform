@@ -23,7 +23,7 @@ terminal.
 2. **Data check.** You see what was found: samples, taxa, taxonomy depth,
    sparsity, read depth and label type. Red problems block the analysis and
    say how to fix them. Amber warnings (for example, a sample with far more
-   reads than the rest) do not block it.
+   reads than the rest, or samples low on reads or on taxa detected) do not block it.
 3. **Plan.** A task is recommended, with the reasons. You can choose
    another. If a task needs a file you have not uploaded, it says which one,
    and you can add a labels file or a metabolite table right there.
@@ -143,6 +143,10 @@ Templates of all three are on the website (in every error message, and under
 ## What you get
 
 - **The processed table** (CSV): MIPMLP's output, one row per sample.
+- **Data quality** (read counts only): sequencing depth per sample, and **reads vs taxa
+  detected**, one dot per sample. Samples below 25% of the median on either axis (or under 1,000
+  reads) fall in a shaded band and are coloured and named; low on both usually means a failed
+  sample. Few taxa with normal reads can be real, so check before removing a sample.
 - **Figures**: each as PNG, SVG (with editable text) and an interactive HTML
   file that works offline, each with a CSV of the exact data plotted.
 - **"Download everything"**: one ZIP with a README, the reproducibility
