@@ -44,3 +44,6 @@ Thumbs.db
 
 # Claude Code project instructions: local only, not shared with the lab (2026-11-10)
 CLAUDE.md
+
+# The user's own analysis plots: never committed
+plots/
