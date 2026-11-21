@@ -40,6 +40,9 @@ class EngineResult:
     tables: dict[str, pd.DataFrame] = field(default_factory=dict)  # name → table, saved as CSV
     record: dict = field(default_factory=dict)  # tool version and every setting, for reproducibility
     highlight: tuple[str, str] | None = None  # (table name, heading): the table to preview on the page
+    # One line shown where figures would be, when the tool cannot draw some of them (e.g. miMic's own
+    # plots below species level).
+    figure_note: str | None = None
 
 
 @dataclass(frozen=True)
@@ -58,6 +61,9 @@ class Engine(ABC):
     requires: ClassVar[frozenset[InputKind]]
     preprocessing: ClassVar[PreprocessSettings] = CANONICAL
     options: ClassVar[tuple[EngineOption, ...]] = ()
+    # True for tools that turn each sample into an image of the taxonomy tree (iMic, GIMIC): at a very
+    # coarse taxonomy level those images hold little, which the results then say.
+    uses_tree_images: ClassVar[bool] = False
 
     def resolve(self, choices: dict | None) -> dict[str, str]:
         """Every option's value: the user's choice if valid, otherwise the default.

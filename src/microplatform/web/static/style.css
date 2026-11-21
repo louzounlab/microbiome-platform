@@ -402,6 +402,10 @@ main:focus { outline: none; } /* focused only as the skip link's target */
 .goal-tool { font-size: 0.8rem; font-weight: 700; color: var(--accent-ink); }
 .goal-reason { font-size: 0.8rem; color: var(--muted); }
 .settings-note { font-size: 0.9rem; }
+.level-choice { margin: 1rem 0 0.5rem; display: flex; flex-wrap: wrap; align-items: center; gap: 0.4rem 0.75rem; }
+.level-choice select { font: inherit; padding: 0.35rem 0.5rem; border: 1px solid var(--border); border-radius: 6px; background: var(--surface); color: inherit; max-width: 100%; }
+.level-choice p { flex-basis: 100%; margin: 0; font-size: 0.9rem; }
+.figure-note { font-size: 0.9rem; }
 .optional-uploads { margin: 0 0 1.25rem; }
 .optional-uploads .dropzone-compact { margin-top: 0.6rem; }
 .run-bar { margin-top: 1.25rem; padding-top: 1.25rem; border-top: 1px solid var(--border); }

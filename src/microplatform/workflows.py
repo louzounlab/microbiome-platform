@@ -28,12 +28,16 @@ from microplatform.core.inputs import (
 from microplatform.core.metabolites import MetaboliteProfile, profile_metabolites
 from microplatform.core.preprocessing import (
     CANONICAL,
+    REPRODUCED_AT,
+    SPECIES,
     PreprocessResult,
     PreprocessSettings,
+    level_name,
     preprocess,
     use_as_is,
 )
 from microplatform.core.profiler import (
+    RANKS,
     CountsProfile,
     Issue,
     LabelProfile,
@@ -59,8 +63,29 @@ SETTING_WORDS = {
 
 __all__ = [
     "RunView", "add_labels", "add_metabolites", "analyze", "build_bundle", "build_dataset", "describe", "run_goal",
-    "set_preprocessing", "start_example_run", "start_run",
+    "set_preprocessing", "set_taxonomy_level", "start_example_run", "start_run", "taxonomy_levels",
 ]
+
+# --- The run's taxonomy level ---------------------------------------------------------------
+# One level per run: MIPMLP groups the bacteria at it, and every tool of the run uses that table.
+# Offered: phylum down to the deepest rank the data check finds named for most taxa, and always species
+# (the default, the MIPMLP paper's setting). Kingdom is not offered: it leaves one or two features.
+COARSEST_LEVEL = 2  # phylum
+COARSE_LEVELS = (2, 3)  # phylum, class: few features, little for the image-based tools
+# Phylum: GIMIC's images (3 rows) are too small for its smoothing, so its distances are undefined there.
+COARSE_HINTS = {2: "few features: less informative for iMic, and GIMIC cannot run at this level",
+                3: "few features: less informative for iMic and GIMIC"}
+COARSE_NOTE = ("At {level} level there are few features, so each sample's image of the taxonomy tree holds "
+               "little: the results are less informative than at a finer level.")
+
+
+@dataclass(frozen=True)
+class LevelOption:
+    """A taxonomy level a run can use: MIPMLP's number, its name and a short hint (or None)."""
+
+    level: int
+    name: str
+    hint: str | None = None
 
 # How a run's table becomes the features: preprocessed with MIPMLP, or used as it is because it already
 # looks preprocessed (never preprocessed twice without the user choosing it). See ``preprocessing_mode``.
@@ -93,6 +118,8 @@ class RunView:
     options: dict | None = None  # goal id → the engine's advanced settings (EngineOption)
     metabolites: MetaboliteProfile | None = None  # the metabolite table's check, if there is one
     preprocessing: str = "mipmlp"  # "mipmlp" or "as_is" (see PREPROCESSING_MODES)
+    taxonomy_level: int = SPECIES  # the run's level (see ``set_taxonomy_level``)
+    taxonomy_levels: tuple[LevelOption, ...] = ()  # the levels this table can use, coarsest first
 
     @property
     def as_is(self) -> bool:
@@ -118,9 +145,10 @@ class RunView:
             return None
         shared = asdict(CANONICAL)
         used = self.record.get("settings", {})
+        # The taxonomy level is the run's own choice, used by every tool of the run: not a difference.
         diffs = [SETTING_WORDS.get((key, used[key]),
                                    f"{key.replace('_', ' ')} '{used[key]}' (the shared table uses '{shared[key]}')")
-                 for key in shared if key in used and used[key] != shared[key]]
+                 for key in shared if key in used and used[key] != shared[key] and key != "taxonomy_level"]
         return f"This analysis used {'; '.join(diffs)}." if diffs else None
 
     @property
@@ -213,6 +241,7 @@ def analyze(
     options: dict | None = None,
     metabolites: str | Path | None = None,
     preprocessing: str | None = None,
+    taxonomy_level: int | str | None = None,
 ) -> RunView:
     """Run a whole analysis from files on disk, without the website.
 
@@ -227,6 +256,9 @@ def analyze(
     already preprocessed); by default it is ``"as_is"`` exactly when the table already looks
     preprocessed (negative values, or samples adding up to different totals), so a table is never
     preprocessed twice without asking for it. ``view.preprocessing`` says which was used.
+    ``taxonomy_level`` is the level MIPMLP groups the bacteria at, for every tool of the run: a rank name
+    ("genus") or MIPMLP's number (6); species (7) by default. Only the levels the table reaches can be
+    used (``taxonomy_levels``).
     ``counts`` is a counts table, or YaMAS's 16S output as a pair ``("otu.csv", "taxonomy.csv")``
     (in either order; the read counts are kept, and the lineages standardised: ``core/yamas.py``).
     Raises ``UserFacingError`` (with a message and a fix) if the data cannot be used.
@@ -236,6 +268,8 @@ def analyze(
     run = start_run(Path(out_dir), sort_uploads([(p.name, p.read_bytes()) for p in paths]), goal)
     if preprocessing is not None:
         set_preprocessing(run, preprocessing)
+    if taxonomy_level is not None:
+        set_taxonomy_level(run, taxonomy_level)
     run_goal(run, goal or describe(run).default_goal, Path(cache_dir) if cache_dir else None, options)
     return describe(run)
 
@@ -302,6 +336,8 @@ def describe(run: runs.Run) -> RunView:
         options={} if mode == "as_is" else {goal: e.options for goal, e in ENGINES.items() if e.options},
         metabolites=metabolite_profile,
         preprocessing=mode,
+        taxonomy_level=run_level(meta),
+        taxonomy_levels=taxonomy_levels(profile),
     )
 
 
@@ -321,6 +357,44 @@ def set_preprocessing(run: runs.Run, mode: str) -> None:
     if run.status in ("queued", "running"):
         raise InputError("This analysis is already running.", "Wait for it to finish, then change the choice.")
     run.update_meta(preprocessing=mode)
+
+
+def taxonomy_levels(profile: CountsProfile) -> tuple[LevelOption, ...]:
+    """The levels this table can use, coarsest first: phylum down to the deepest rank named for most
+    taxa (the data check's taxonomy depth), and species, the default, always."""
+    levels = sorted({*range(COARSEST_LEVEL, profile.taxonomy_depth + 1), SPECIES})
+    options = []
+    for level in levels:
+        hint = COARSE_HINTS.get(level)
+        if level == SPECIES:
+            named = profile.rank_coverage.get(RANKS[SPECIES - 1], 0.0)
+            hint = "default" + (f"; your table names a species for {named:.0%} of taxa, the rest are grouped at "
+                                "their deepest named rank" if profile.taxonomy_depth < SPECIES else "")
+        options.append(LevelOption(level, level_name(level), hint))
+    return tuple(options)
+
+
+def run_level(meta: dict) -> int:
+    """The run's taxonomy level (species unless chosen)."""
+    return int(meta.get("taxonomy_level", SPECIES))
+
+
+def set_taxonomy_level(run: runs.Run, level: int | str) -> None:
+    """The run's taxonomy level, for every tool: a rank name ("genus") or MIPMLP's number (6)."""
+    profile = profile_counts(run.counts())
+    offered = taxonomy_levels(profile)
+    by_name = {o.name: o.level for o in offered}
+    text = str(level).strip().lower()
+    chosen = int(text) if text.isdigit() else by_name.get(text)
+    names = ", ".join(o.name for o in offered)
+    if chosen not in {o.level for o in offered}:
+        raise InputError(f"'{level}' is not a taxonomy level this table can use.", f"Choose one of: {names}.")
+    if run.status in ("queued", "running"):
+        raise InputError("This analysis is already running.", "Wait for it to finish, then change the choice.")
+    if preprocessing_mode(run.meta(), profile) == "as_is":
+        raise InputError("Your table is used as it is, so it is not grouped at any taxonomy level.",
+                         "To choose a level, choose to preprocess it with MIPMLP in the data check.")
+    run.update_meta(taxonomy_level=chosen)
 
 
 def _without_mipmlp(options: list[GoalOption]) -> list[GoalOption]:
@@ -387,9 +461,13 @@ def run_goal(run: runs.Run, goal_id: str, cache_dir: Path | None = None, choices
     choices = engine.resolve(choices)
 
     as_is = preprocessing_mode(run.meta(), profile_counts(run.counts())) == "as_is"
+    settings = engine.settings_for(choices)
+    level = run_level(run.meta())
+    if not as_is:  # the run's level, for every tool (a table used as it is is not grouped again)
+        settings = settings.with_changes(taxonomy_level=level)
     run.set_status("running", goal=goal_id, error=None, choices=choices)
     try:
-        dataset, result = build_dataset(run, engine.settings_for(choices), cache_dir, engine.name, as_is=as_is)
+        dataset, result = build_dataset(run, settings, cache_dir, engine.name, as_is=as_is)
         run.save_result(result)  # the representation this engine used is kept for every run
         figures.export(figures.preprocessing_figures(dataset.raw_counts, dataset.settings), run.figures_dir)
         figures.export(overview.overview_figures(dataset.raw_counts, dataset.settings, dataset.labels,
@@ -397,6 +475,8 @@ def run_goal(run: runs.Run, goal_id: str, cache_dir: Path | None = None, choices
         # Absolute: the engines change into this folder, so a relative one (mp.analyze(out_dir="runs"))
         # would point somewhere else once inside it.
         found = engine.run(dataset, (run.path / "work" / engine.name.lower()).resolve(), choices)
+        if engine.uses_tree_images and not as_is and level in COARSE_LEVELS:
+            found.notes.append(COARSE_NOTE.format(level=level_name(level)))
         _save_engine_result(run, engine, found, choices)
     except UserFacingError as exc:
         run.set_status("failed", error={"message": exc.message, "fix": exc.fix})
@@ -439,6 +519,7 @@ def _save_engine_result(run: runs.Run, engine, found, choices: dict) -> None:
         "record": found.record,
         "tables": list(found.tables),
         "highlight": list(found.highlight) if found.highlight else None,
+        "figure_note": found.figure_note,
     })
 
 

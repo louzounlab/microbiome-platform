@@ -38,6 +38,7 @@ from pathlib import Path
 import pandas as pd
 
 from microplatform.core.contract import RANK_SEPARATOR, Dataset
+from microplatform.core.preprocessing import SPECIES
 from microplatform.core.errors import UserFacingError
 from microplatform.engines.base import Engine, EngineResult
 from microplatform.engines.labels import native_tag
@@ -95,6 +96,12 @@ def load_mimic():
     return apply_mimic, apply_nested_anova
 
 
+# miMic's plot mode (its cladogram, and the RP vs SP check that re-runs the test from every level) assumes
+# species-level names (seven ranks) and fails on a coarser table, so below species it is not called; the
+# test itself runs at any level.
+SPECIES_ONLY_PLOTS = "The cladogram and the real-vs-shuffled figure are available at species level only."
+
+
 class MimicEngine(Engine):
     name = "miMic"
     goal = "differ"
@@ -134,22 +141,25 @@ class MimicEngine(Engine):
         hits = found[found["found_by"] != LEAF_ONLY].reset_index(drop=True)
         leaf_only = found[found["found_by"] == LEAF_ONLY].reset_index(drop=True)
         apriori = _apriori_table(levels)
-        drawn, rp_sp = _authors_plots(work_dir, images, samba_output, tag, start, test, found, data.label_kind,
-                                      coding)
+        below_species = data.settings.taxonomy_level < SPECIES
+        drawn, rp_sp = ([], None) if below_species else _authors_plots(
+            work_dir, images, samba_output, tag, start, test, found, data.label_kind, coding)
+        not_drawn = "not drawn (species level only)" if below_species else "not drawn (no significant taxa)"
         return EngineResult(
             summary=_summary(start, hits, leaf_only, apriori, data.label_kind, coding, test),
             rendered=drawn,
             figures=[f for f in (_taxa_figure(hits, data.label_kind, coding), rp_sp) if f],
             tables={"significant_taxa": hits, "leaf_test_only": leaf_only, "apriori_test": apriori},
             highlight=("significant_taxa", "Most significant taxa (miMic)") if not hits.empty else None,
+            figure_note=SPECIES_ONLY_PLOTS if below_species else None,
             record={
                 "tool": "miMic", "package": "mimic-da", "version": version("mimic-da"),
                 "test": {"man": "Mann-Whitney (binary)", "corr": "Spearman (continuous)"}[test],
                 "eval": test, "threshold_p": THRESHOLD_P, "sister_correction": SISTER_CORRECTION,
                 "correct_first": CORRECT_FIRST, "samples": len(tag), "label_coding": coding,
                 "post_hoc_start": str(start), "significant_taxa": len(hits), "leaf_test_only": len(leaf_only),
-                "authors_plots": (PLOT_CALL if drawn else "not drawn (no significant taxa)"),
-                "rp_sp_check": RP_SP_RECORD if rp_sp else "not drawn (no significant taxa)",
+                "authors_plots": PLOT_CALL if drawn else not_drawn,
+                "rp_sp_check": RP_SP_RECORD if rp_sp else not_drawn,
                 "plot_seed": PLOT_SEED,
             },
         )

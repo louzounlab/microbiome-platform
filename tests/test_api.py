@@ -23,14 +23,15 @@ ROOT = Path(__file__).parents[1]
 
 # The public API as released in 0.3.0 (0.2.0 + ``metabolites`` in analyze), plus, unreleased and in
 # CHANGELOG.md: ``preprocessing`` in analyze and ``as_is`` in build_dataset (both last, with defaults,
-# so earlier calls still work), and analyze's ``counts`` also taking YaMAS's (otu, taxonomy) pair. If this test fails, the API changed: make sure it was meant to,
+# so earlier calls still work), analyze's ``counts`` also taking YaMAS's (otu, taxonomy) pair, and
+# ``taxonomy_level`` in analyze (last, with a default). If this test fails, the API changed: make sure it was meant to,
 # record it in CHANGELOG.md (Added / Changed / Removed), then update this.
 API_0_3 = {
     "analyze": "mp.analyze(counts: str | Path | tuple[str | Path, str | Path], labels: str | Path | None = None, "
                "goal: str | None = None, "
                "out_dir: str | Path = 'microplatform-runs', cache_dir: str | Path | None = None, "
                "options: dict | None = None, metabolites: str | Path | None = None, "
-               "preprocessing: str | None = None) -> RunView",
+               "preprocessing: str | None = None, taxonomy_level: int | str | None = None) -> RunView",
     "read_table": "mp.read_table(source: str | IO, **kwargs) -> DataFrame",
     "profile_counts": "mp.profile_counts(raw: DataFrame) -> CountsProfile",
     "profile_labels": "mp.profile_labels(tags: DataFrame, sample_ids: list[str]) -> LabelProfile",

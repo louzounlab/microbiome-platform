@@ -26,13 +26,32 @@ terminal.
    reads than the rest, or samples low on reads or on taxa detected) do not block it.
 3. **Plan.** A task is recommended, with the reasons. You can choose
    another. If a task needs a file you have not uploaded, it says which one,
-   and you can add a labels file or a metabolite table right there.
+   and you can add a labels file or a metabolite table right there. You can
+   also choose the **taxonomy level** (see below); species is the default.
 4. **Results.** After you click Run, the analysis runs on the server and the
    page shows "Running…". You can close the page: it updates by itself, and
    the link shown there brings you back to the results at any time. When it is
    done you get a summary, figures, the processed table and a record of every
    setting used. (If the lab has switched email on, you can also leave your
    address to receive the link; it is deleted once the email is sent.)
+
+## Taxonomy level
+
+MIPMLP groups the bacteria at one taxonomy level before any tool runs, and every tool of the
+analysis uses that table. Species is the default (the MIPMLP paper's setting). The Plan step offers
+every level from phylum down to the deepest one your table names for most taxa; if your table names
+species for only some taxa, "species" groups the rest at their deepest named rank.
+
+- A coarser level merges bacteria into fewer features: findings name genera (or families…) instead
+  of species.
+- **Phylum and class** leave few features, so iMic and GIMIC (which turn each sample into an image of
+  the taxonomy tree) are less informative there. At phylum, GIMIC cannot measure distances at all and
+  says so.
+- **miMic below species** runs its test and shows its results, but not its cladogram and its
+  real-vs-shuffled figure: the authors' plotting code needs species level.
+- The data overview (composition, diversity, sparsity) does not change with the level: it describes
+  your uploaded table.
+- A table that is already preprocessed (used as it is) is not grouped again, so it has no level.
 
 ## Which files each task needs
 

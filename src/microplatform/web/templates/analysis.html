@@ -147,8 +147,20 @@
         </label>
       {% endfor %}
     </fieldset>
+    {% if not view.as_is %}
+      <div class="level-choice">
+        <label for="taxonomy-level"><strong>Taxonomy level</strong></label>
+        <select name="taxonomy_level" id="taxonomy-level">
+          {% for option in view.taxonomy_levels %}
+            <option value="{{ option.level }}" {% if option.level == view.taxonomy_level %}selected{% endif %}>
+              {{ option.name|capitalize }}{% if option.hint %} ({{ option.hint }}){% endif %}</option>
+          {% endfor %}
+        </select>
+        <p class="muted">MIPMLP groups the bacteria at this level, and every tool uses that table. The
+          levels offered are the ones your table reaches.</p>
+      </div>
+    {% endif %}
     <p class="muted settings-note">Preprocessing uses the settings recommended in the MIPMLP paper:
-      {{ {6: "genus", 7: "species"}.get(view.settings.taxonomy_level) }} level,
       {{ view.settings.taxonomy_group }} grouping and {{ view.settings.normalization }} scaling.</p>
 
     {# Advanced settings: closed by default; the defaults are the recommended choices. #}
@@ -274,8 +286,9 @@
         Results from other tools on this data use the shared table.</p>
     {% endif %}
 
-    {% if view.findings %}
+    {% if view.findings or engine.figure_note %}
       <h3>Findings</h3>
+      {% if engine.figure_note %}<p class="muted figure-note">{{ engine.figure_note }}</p>{% endif %}
       {{ figure_grid(view.run.id, view.findings) }}
     {% endif %}
 
@@ -371,6 +384,9 @@
         {% for key, value in view.engine.record.items() if key not in ("tool", "package", "version") %}
           <div><dt>{{ key|replace("_", " ") }}</dt><dd><code>{{ value }}</code></dd></div>
         {% endfor %}
+      {% endif %}
+      {% if not record.skipped %}
+        <div><dt>Reproduction against the authors' published results</dt><dd>{{ reproduced_at }}</dd></div>
       {% endif %}
       <div><dt>Finished</dt><dd>{{ record.finished }}</dd></div>
       <div><dt>Run ID</dt><dd><code>{{ view.run.id }}</code></dd></div>

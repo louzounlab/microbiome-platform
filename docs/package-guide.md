@@ -79,6 +79,12 @@ view = mp.analyze("counts.csv", metabolites="metabolites.csv")   # LOCATE is the
 view = mp.analyze(("otu.csv", "taxonomy.csv"), "labels.csv")
 ```
 
+```python
+# Another taxonomy level for the whole run (every tool uses it); species is the default.
+view = mp.analyze("counts.csv", "labels.csv", taxonomy_level="genus")   # or MIPMLP's number, 6
+[o.name for o in view.taxonomy_levels]   # the levels this table can use
+```
+
 Tasks (`goal`): `"preprocess"` (MIPMLP only), `"differ"` (miMic), `"predict"`
 (iMic), `"group"` (GIMIC) and `"metabolites"` (LOCATE). `mp.GOALS` lists them
 with what each needs.

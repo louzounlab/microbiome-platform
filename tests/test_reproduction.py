@@ -17,7 +17,7 @@ import pytest
 from microplatform import workflows
 from microplatform.core.inputs import sort_uploads
 from microplatform.core.preprocessing import CANONICAL
-from microplatform.examples import EXAMPLE_COUNTS
+from microplatform.examples import EXAMPLE_COUNTS, EXAMPLE_TAGS
 
 MIMIC_EXAMPLE = Path(__file__).parent / "data" / "mimic_example"  # the authors' files, unchanged
 GIMIC_EXAMPLE = Path(__file__).parent / "data" / "gimic_example"  # the authors' files, unchanged
@@ -424,3 +424,101 @@ def test_locate_product_passes_the_approved_rule_on_this_machine(tmp_path, monke
         for seed in LOCATE_RULE_SEEDS})
     passed, summary = _within_margin(here - recorded)
     assert passed, f"LOCATE differs from the original beyond the approved margin: {summary}"
+
+
+# --- Below species: the run's level reaches each tool as the authors' own level argument -----------
+# The reproduction tests above are at species, the level of the authors' published runs. A run may choose
+# another level (workflows.set_taxonomy_level); these tests show that our tools then compute exactly what
+# the authors' own functions compute when given that level (taxonomy_level=6, genus), on the 40-sample example.
+
+GENUS = 6
+
+
+def _genus_run(root):
+    run = workflows.start_example_run(root / "runs")
+    workflows.set_taxonomy_level(run, "genus")
+    return run
+
+
+def _authors_genus_table():
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        return MIPMLP.preprocess(pd.read_csv(EXAMPLE_COUNTS), taxnomy_group="sub PCA", taxonomy_level=GENUS)
+
+
+def test_mipmlp_at_genus_matches_the_authors_call_with_that_level(tmp_path):
+    theirs = _authors_genus_table()
+    run = _genus_run(tmp_path)
+    ours = workflows.build_dataset(run, CANONICAL.with_changes(taxonomy_level=GENUS), tmp_path / "cache")[0].features
+    assert ours.shape[1] < workflows.build_dataset(run, CANONICAL, tmp_path / "cache")[0].features.shape[1]
+    pd.testing.assert_frame_equal(ours, theirs, check_names=False, check_index_type=False)
+    workflows.run_goal(run, "preprocess", tmp_path / "cache")  # and the run's level is the one used
+    assert workflows.describe(run).record["settings"]["taxonomy_level"] == GENUS
+
+
+def test_mimic_at_genus_finds_exactly_what_the_authors_test_finds(tmp_path):
+    """The authors' test mode on MIPMLP's genus table (miMic's own preprocess mode has no level argument)."""
+    from microplatform.engines.mimic import load_mimic
+
+    apply_mimic, _ = load_mimic()
+    folder = tmp_path / "authors" / "2D_images"
+    folder.mkdir(parents=True)
+    tag = pd.read_csv(EXAMPLE_TAGS, index_col=0)
+    processed = _authors_genus_table()
+    with pytest.MonkeyPatch.context() as mp, warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        mp.chdir(tmp_path / "authors")
+        selected, _ = apply_mimic(str(folder), tag, eval="man", threshold_p=0.05, processed=processed,
+                                  apply_samba=True, save=True)
+    theirs = pd.read_csv(folder / "df_corrs.csv", index_col=0, float_precision="round_trip")
+
+    run = _genus_run(tmp_path)
+    workflows.run_goal(run, "differ", tmp_path / "cache")
+    ours = pd.concat([run.table("significant_taxa"), run.table("leaf_test_only")], ignore_index=True)
+    assert len(theirs) > 0, "the example should find significant taxa at genus level too"
+    assert sorted(ours["taxon"]) == sorted(theirs.index)
+    ours = ours.set_index("taxon").loc[theirs.index]
+    pd.testing.assert_series_equal(ours["p"], theirs["p"], check_names=False, check_exact=True)
+    assert run.engine_record()["record"]["post_hoc_start"] == str(selected)
+
+
+def test_imic_images_at_genus_are_the_authors_images_at_that_level(tmp_path):
+    import numpy as np
+
+    mipmlp = MIPMLP
+    work = tmp_path / "authors"
+    (work / "images").mkdir(parents=True)
+    with warnings.catch_warnings(), pytest.MonkeyPatch.context() as mp:
+        warnings.simplefilter("ignore")
+        mp.chdir(work)
+        mipmlp.micro2matrix(pd.read_csv(EXAMPLE_COUNTS), "images", taxonomy_level=GENUS)
+    theirs = {p.stem: np.load(p, allow_pickle=True) for p in (work / "images").glob("*.npy")}
+
+    run = _genus_run(tmp_path)
+    workflows.run_goal(run, "predict", tmp_path / "cache")
+    ours = {p.stem: np.load(p, allow_pickle=True)
+            for p in (run.path / "work" / "imic" / "imic_images").glob("*.npy")}
+    assert set(ours) == set(theirs) and len(set(ours) - {"bact_names"}) == 40
+    assert all(np.array_equal(ours[k], theirs[k]) for k in ours)
+
+
+def test_gimic_mean_mode_at_genus_is_the_authors_example_at_that_level(tmp_path):
+    """SAMBA's example_use.py with MIPMLP.preprocess(df, taxonomy_level=6): exact distances."""
+    from microplatform.engines.gimic import load_gimic
+
+    micro2matrix, build_SAMBA_distance_matrix = load_gimic()
+    with warnings.catch_warnings(), pytest.MonkeyPatch.context() as mp:
+        warnings.simplefilter("ignore")
+        mp.chdir(tmp_path)
+        processed = MIPMLP.preprocess(pd.read_csv(EXAMPLE_COUNTS), taxonomy_level=GENUS)
+        imgs, bact_names, ordered_df = micro2matrix(processed, "example_data/2D_images", save=False)
+        theirs = build_SAMBA_distance_matrix("example_data/2D_images", imgs=imgs, ordered_df=ordered_df,
+                                             bact_names=bact_names, class_=False)
+
+    run = _genus_run(tmp_path)
+    workflows.run_goal(run, "group", tmp_path / "cache", {"grouping": "mean"})
+    ours = run.table("distance_matrix").set_index("ID")
+    ours.index = ours.index.astype(str)
+    theirs.index, theirs.columns = theirs.index.astype(str), theirs.columns.astype(str)
+    assert theirs.shape == (40, 40)
+    pd.testing.assert_frame_equal(ours, theirs, check_names=False, check_exact=True)

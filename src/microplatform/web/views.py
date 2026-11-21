@@ -42,6 +42,7 @@ bp.add_app_template_filter(lambda n: f"{int(n):,}", "count")  # 55882 → 55,882
 def format_rules():
     """The input rules the format help states, from the package (never re-typed in templates)."""
     return {"min_metabolite_columns": MIN_METABOLITE_COLUMNS, "min_paired": MIN_PAIRED,
+            "level_name": workflows.level_name, "reproduced_at": workflows.REPRODUCED_AT,
             "switched_off": switched_off()}  # tasks this server does not offer
 
 
@@ -140,6 +141,8 @@ def run_goal(run_id: str):
     # Advanced settings arrive as "<goal>:<option>" fields; the package validates them.
     choices = {key.split(":", 1)[1]: value for key, value in request.form.items() if key.startswith(f"{goal}:")}
     try:
+        if request.form.get("taxonomy_level"):  # the run's level, for every tool (absent for a table used as is)
+            workflows.set_taxonomy_level(run, request.form["taxonomy_level"])
         jobs.submit(run, goal, email=request.form.get("email"),
                     results_url=_public_url(url_for(".analysis", run_id=run.id)),
                     email_enabled=_notifier() is not None, choices=choices)

@@ -26,7 +26,7 @@ import pandas as pd
 
 from microplatform.core.contract import ID_COLUMN, TAXONOMY_ROW
 from microplatform.core.errors import UserFacingError
-from microplatform.core.profiler import count_matrix, profile_counts
+from microplatform.core.profiler import RANKS, count_matrix, profile_counts
 
 
 class PreprocessError(UserFacingError):
@@ -64,8 +64,19 @@ class PreprocessSettings:
 
 
 # The paper's recommended pipeline (log, sub-PCA, no dimension reduction) at
-# species level, which iMic, miMic and GIMIC all use.
+# species level, which iMic, miMic and GIMIC all use. A run may choose another taxonomy level
+# (``workflows.set_taxonomy_level``); every tool of that run then uses it.
 CANONICAL = PreprocessSettings()
+
+SPECIES = 7  # MIPMLP's taxonomy_level n keeps the first n ranks: 1 = kingdom … 7 = species
+# The level at which every tool was reproduced against the authors' published runs
+# (tests/test_reproduction.py); shown in the reproducibility record.
+REPRODUCED_AT = "species level"
+
+
+def level_name(level: int) -> str:
+    """'genus' for 6, 'species' for 7 (MIPMLP's numbering: 1 = kingdom)."""
+    return RANKS[level - 1] if 1 <= level <= len(RANKS) else f"level {level}"
 
 
 @dataclass
@@ -106,8 +117,7 @@ class PreprocessResult:
         if self.skipped:
             return [f"Not preprocessed: your table ({self.n_features:,} features) was used exactly as uploaded, "
                     "because it already looks preprocessed. MIPMLP was not run on it again."]
-        level = {6: "genus", 7: "species"}.get(self.settings.taxonomy_level,
-                                               f"level {self.settings.taxonomy_level}")
+        level = level_name(self.settings.taxonomy_level)
         return [
             f"Grouped {self.n_input_taxa:,} taxa into {self.n_features:,} features at {level} "
             f"level ({self.settings.taxonomy_group}), then applied {self.settings.normalization} scaling.",

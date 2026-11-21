@@ -34,7 +34,8 @@ import pandas as pd
 
 from microplatform.core.contract import ID_COLUMN, Dataset
 from microplatform.engines.base import Engine, EngineOption, EngineResult
-from microplatform.core.preprocessing import CANONICAL, PreprocessSettings
+from microplatform.core.errors import UserFacingError
+from microplatform.core.preprocessing import CANONICAL, PreprocessSettings, level_name
 from microplatform.reports.figures import Figure
 
 METRIC = "sam"  # the authors' default: spectral angle between smoothed images
@@ -61,6 +62,7 @@ class GimicEngine(Engine):
     name = "GIMIC"
     goal = "group"
     requires = frozenset({"counts"})
+    uses_tree_images = True
     options = (EngineOption("grouping", "How bacteria are grouped", GROUPINGS, GROUPING_DEFAULT),)
 
     def settings_for(self, choices: dict[str, str]) -> PreprocessSettings:
@@ -79,6 +81,12 @@ class GimicEngine(Engine):
                                  ordered_df=ordered_df, bact_names=bact_names, class_=False)
         dm.index = dm.index.astype(str)
         dm.columns = dm.columns.astype(str)
+        if dm.isna().to_numpy().any():  # e.g. at phylum level: images of 3 rows leave the smoothing nothing
+            level = level_name(data.settings.taxonomy_level)
+            raise UserFacingError(
+                f"GIMIC could not measure the distances at {level} level: each sample's image of the taxonomy "
+                "tree is too small for its smoothing step, so the distances came out undefined.",
+                "Choose class or a finer taxonomy level in the Plan step.")
 
         groups = _groups(data, dm.index)
         coords = _umap(dm)

@@ -99,6 +99,7 @@ class ImicEngine(Engine):
     name = "iMic"
     goal = "predict"
     requires = frozenset({"counts", "labels"})
+    uses_tree_images = True
 
     def run(self, data: Dataset, work_dir: Path, choices: dict[str, str] | None = None) -> EngineResult:
         if data.labels is None or data.label_kind != "binary":

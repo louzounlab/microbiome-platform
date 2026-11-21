@@ -8,6 +8,16 @@ All notable changes to `microplatform`. The format follows
 
 ## [Unreleased]
 
+### Added
+- A taxonomy level per run, for every tool: the Plan step offers phylum down to the deepest rank the
+  table names for most taxa, and species (the default, unchanged); `mp.analyze(..., taxonomy_level="genus")`
+  does the same. MIPMLP groups the bacteria at that level and every tool uses that table. Below species,
+  miMic runs its test and shows its results, but not its own cladogram and real-vs-shuffled figure
+  (the authors' plot code needs species level). At phylum and class, iMic's and GIMIC's results say
+  that the few features make them less informative; at phylum, GIMIC's distances are undefined, so it
+  stops with a message. The reproducibility record says at which level the tools were reproduced
+  against the authors' published results (species).
+
 ### Fixed
 - Results page: a chart that sets its own height (miMic's taxa bars, the RP vs SP check) no longer
   runs past its box over the caption and the download links.
