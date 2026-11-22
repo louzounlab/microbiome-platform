@@ -118,6 +118,17 @@ class Run:
         """
         return _exact_file(self.figures_dir, name)
 
+    @property
+    def taxa_dir(self) -> Path:
+        """The results page's "Look at one taxon" figures, drawn on demand: one folder per taxon (inside the
+        figures folder, so a new run clears them with the rest)."""
+        return self.figures_dir / "taxa"
+
+    def taxon_file(self, folder: str, name: str) -> Path | None:
+        """A file of one drawn taxon, by exact folder and file name, or None (never anything outside it)."""
+        found = {p.name: p for p in self.taxa_dir.iterdir() if p.is_dir()} if self.taxa_dir.is_dir() else {}
+        return _exact_file(found[folder], name) if folder in found else None
+
     def meta(self) -> dict:
         return json.loads((self.path / "meta.json").read_text(encoding="utf-8"))
 

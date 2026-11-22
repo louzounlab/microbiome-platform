@@ -98,7 +98,8 @@ def build_bundle(run: Run) -> bytes:
         if run.figures_dir.exists():
             zf.writestr("figures/FIGURES.txt", figure_notes(run))
             for path in sorted(run.figures_dir.iterdir()):
-                if path.suffix != ".json":  # JSON copies are only for the web page
+                # JSON copies are only for the web page; the folders are the page's one-taxon views (on demand)
+                if path.is_file() and path.suffix != ".json":
                     zf.write(path, f"{figure_folder(sections.get(path.name, 'quality'))}/{path.name}")
     return buffer.getvalue()
 

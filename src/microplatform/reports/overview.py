@@ -35,6 +35,8 @@ the analysis does not use them (see ``composition.py``: "Not named at <rank>" an
 
 from __future__ import annotations
 
+import hashlib
+import re
 from dataclasses import replace
 
 import numpy as np
@@ -63,7 +65,7 @@ FIGURE_NAMES = ("composition_bars", "composition_pie", "alpha_diversity", "beta_
                 "taxa_prevalence")
 VIOLIN = "composition_violin"  # only with split_violin=True and two groups, right after the pie
 
-__all__ = ["overview_figures", "composition_levels", "alpha_diversity", "bray_curtis_pcoa", "sample_groups"]
+__all__ = ["overview_figures", "composition_levels", "taxon_figures", "taxon_file_name", "alpha_diversity", "bray_curtis_pcoa", "sample_groups"]
 
 OVERVIEW_UNAVAILABLE = ("The descriptive overview is not drawn for this table: it has negative values (it is "
                         "already log-transformed or z-scored), and composition, diversity and distances between "
@@ -155,6 +157,109 @@ def composition_levels(
             if violin is not None:
                 figures.append(violin)
     return figures
+
+
+def taxon_figures(
+    counts: pd.DataFrame,
+    rank: str,
+    taxon: str,
+    labels: pd.Series | None = None,
+    label_kind: LabelKind | None = None,
+) -> list[Figure]:
+    """One taxon across the samples, from the user's own table: a bar per sample (its % of the sample's whole
+    total, most first), and with two-group or categorical ``labels`` a box per group with every sample as a dot.
+    Descriptive only: no test. ``taxon`` is a label from ``composition.taxon_choices`` (``rank``: phylum to
+    species); [] if the table has no such taxon or cannot be shown as relative abundance.
+
+    The data (CSV) has each sample's % and the table's own value: ``reads`` for a table of counts,
+    ``abundance_in_table`` otherwise. Every caption starts with the summary line ("Found in 41 of 63 samples;
+    mean 2.1%, median 0.4%.").
+    """
+    if (counts.to_numpy() < 0).any():
+        return []
+    with_reads = counts.loc[counts.sum(axis=1) > 0]
+    try:
+        found = composition.taxon_abundance(with_reads, rank, taxon)
+    except CompositionError:
+        return []
+    if found is None or found.empty:
+        return []
+    reads = value_kind(counts) == "counts"
+    value = "reads" if reads else "abundance_in_table"
+    grouped = label_kind in GROUPABLE and labels is not None
+    groups = sample_groups(found.index, labels) if grouped else None
+    data = found.rename(columns={"value": value})
+    if groups is not None:
+        data = data.assign(group=groups)[["group", "percent", value]]
+    data = (data.rename_axis("sample").reset_index()
+            .sort_values("percent", ascending=False, kind="stable").reset_index(drop=True))
+    data["sample"] = data["sample"].astype(str)
+    data["percent"] = data["percent"].round(6)
+    if reads:
+        data[value] = data[value].round().astype("int64")
+    n, present = len(data), int((data[value] > 0).sum())
+    line = (f"Found in {present:,} of {n:,} samples; mean {_share(data['percent'].mean())}, "
+            f"median {_share(data['percent'].median())}.")
+    dropped = len(counts) - len(with_reads)
+    left_out = (f" {dropped:,} sample{'s' if dropped != 1 else ''} without reads {'are' if dropped != 1 else 'is'} "
+                "left out." if dropped else "")
+    plural = composition.PLURALS[rank]
+    details = (f"Relative abundance from the uploaded table: the taxon's share of each sample's whole total (100%), "
+               f"named abundance or not. {taxon} is the {rank} as your table names it, summed over every column "
+               f"of its lineage down to {rank}; where two {plural} share a name, the family (or the rank above) is "
+               "added." + (" At phylum, GTDB variants and old and new names of a phylum are one phylum, as in the "
+                           "composition figures." if rank == "phylum" else "")
+               + " This is not the log-transformed table the tools analyse.")
+    amount = "%{customdata[0]:,} reads" if reads else "%{customdata[0]:.4g} in the table"
+    hover = f"%{{x}}<br>%{{y:.2f}}% of the sample<br>{amount}<extra></extra>"
+    name = taxon_file_name(rank, taxon)
+    figs = [Figure(
+        name=name,
+        title=f"{taxon} ({rank}) in each sample",
+        caption=f"{line} Each bar is one sample: the share of its whole total that is {taxon}, highest to lowest"
+                f"{' (hover for the reads)' if reads else ''}.{left_out} {DESCRIPTIVE}",
+        subtitle=line, details=details,
+        data=data, kind="bar", x="sample", y="percent", x_label="Samples (sorted by share)",
+        y_label="Relative abundance (%)", hover=hover, hover_data=(value,), section="overview", level=rank,
+    )]
+    if groups is not None:
+        ordered = _ordered(groups)
+        order = {g: i for i, g in enumerate(ordered)}
+        boxed = data.sort_values("group", key=lambda g: g.map(order), kind="stable").reset_index(drop=True)
+        per_group = "; ".join(
+            f"{g}: in {int((rows[value] > 0).sum()):,} of {len(rows):,}, median {_share(rows['percent'].median())}"
+            for g, rows in boxed.groupby("group", sort=False))
+        figs.append(Figure(
+            name=f"{name}_groups",
+            title=f"{taxon} ({rank}) by group",
+            caption=f"{line} Each dot is one sample; the box covers the middle half of the group's samples and the "
+                    f"line inside it is the median ({per_group}). Groups are not tested here: to find bacteria that "
+                    f"differ between groups, run “Find bacteria that differ” (miMic).{left_out} {DESCRIPTIVE}",
+            subtitle=line, details=details,
+            data=boxed, kind="box", x="group", y="percent", x_label="", y_label="Relative abundance (%)",
+            group_by="group", label="sample", y_from_zero=True,
+            colors=tuple(group_colors(ordered).items()), hover_data=(value,),
+            hover=f"%{{text}}<br>%{{y:.2f}}% of the sample<br>{amount}<extra></extra>",
+            section="overview", level=rank,
+        ))
+    return figs
+
+
+def _share(percent: float) -> str:
+    """2.1% / 0.42% / 0.003% / 0%: enough digits to tell a rare taxon from an absent one."""
+    if percent == 0:
+        return "0%"
+    if percent >= 1:
+        return f"{percent:.1f}%"
+    if percent < 0.01:
+        return "under 0.01%"
+    return f"{percent:.2g}%"
+
+
+def taxon_file_name(rank: str, taxon: str) -> str:
+    """A file stem for one taxon: readable, and different for two labels that differ only in punctuation."""
+    slug = re.sub(r"[^A-Za-z0-9]+", "_", taxon).strip("_")[:48] or "taxon"
+    return f"taxon_{rank}_{slug}_{hashlib.sha1(taxon.encode()).hexdigest()[:6]}"
 
 
 # --- the numbers ------------------------------------------------------------------------

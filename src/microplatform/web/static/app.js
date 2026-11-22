@@ -190,6 +190,24 @@ if (running) {
   setTimeout(poll, 4000);
 }
 
+// "Look at one taxon": a new level brings that level's list of taxa into the search box, in place (the page
+// does not reload until "Show"). Without JavaScript, "Show" with an empty box loads the level's list.
+for (const select of document.querySelectorAll("select[data-choices]")) {
+  const form = select.form;
+  const name = form.querySelector("input[name=taxon]");
+  const list = document.getElementById(name.getAttribute("list"));
+  select.addEventListener("change", () => {
+    const rank = select.value;
+    fetch(`${select.dataset.choices}?rank=${encodeURIComponent(rank)}`)
+      .then((response) => (response.ok ? response.json() : Promise.reject()))
+      .then((names) => {
+        list.replaceChildren(...names.map((n) => Object.assign(document.createElement("option"), { value: n })));
+        name.value = "";
+      })
+      .catch(() => form.submit()); // the list could not be fetched: load the page with it
+  });
+}
+
 // Long-running forms: show what is happening and prevent double submits.
 for (const form of document.querySelectorAll("form[data-busy]")) {
   form.addEventListener("submit", () => {

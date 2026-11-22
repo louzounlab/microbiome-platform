@@ -22,6 +22,13 @@ All notable changes to `microplatform`. The format follows
   species), all drawn with the run from the uploaded table. Below phylum: the 12 most abundant taxa,
   "Other (named, rare)" and "Not named at <rank>" (so each bar is still 100% of the sample); names as in
   the table, with the family added where two share a name. The analysis is not affected.
+- Look at one taxon: on the results page, under the composition figures, pick a level (those the composition
+  was drawn at) and a taxon from a searchable list (named taxa only, most abundant first) to draw it on demand:
+  one bar per sample (its % of the sample's whole total, reads on hover), and with groups a box per group with
+  every sample as a dot; "Found in X of N samples; mean, median". Descriptive, no test; PNG, SVG, interactive
+  and CSV (% and reads). Package: `composition.taxon_choices`, `composition.taxon_abundance`,
+  `overview.taxon_figures`, `workflows.taxon_choices` / `look_at_taxon` / `taxon_lookup`; `Figure.hover_data`.
+  The latest 8 taxa drawn are kept per run (in the run's figures folder; not in the results ZIP).
 
 ### Fixed
 - Results page: a chart that sets its own height (miMic's taxa bars, the RP vs SP check) no longer

@@ -129,8 +129,12 @@ def download_file(name: str):
 
 @bp.get("/runs/<run_id>")
 def analysis(run_id: str):
-    return render_template("analysis.html", view=workflows.describe(_get_run(run_id)),
-                           email_enabled=_notifier() is not None, composition=request.args.get("composition"))
+    view = workflows.describe(_get_run(run_id))
+    composition = request.args.get("composition")
+    return render_template("analysis.html", view=view, email_enabled=_notifier() is not None,
+                           composition=composition,
+                           taxon=workflows.taxon_lookup(view, request.args.get("taxon_level"),
+                                                        request.args.get("taxon"), composition))
 
 
 @bp.post("/runs/<run_id>/run")
@@ -180,6 +184,22 @@ def download(run_id: str):
 @bp.get("/runs/<run_id>/figures/<name>")
 def figure_file(run_id: str, name: str):
     path = _get_run(run_id).figure_file(name)
+    if path is None:
+        abort(404)
+    return send_file(path, mimetype=MEDIA_TYPES.get(path.suffix),
+                     as_attachment=request.args.get("download") == "1")
+
+
+@bp.get("/runs/<run_id>/taxa.json")
+def taxon_names(run_id: str):
+    """The named taxa of one rank, most abundant first: the "Look at one taxon" list for a new level."""
+    return workflows.taxon_choices(_get_run(run_id), request.args.get("rank", ""))
+
+
+@bp.get("/runs/<run_id>/taxa/<folder>/<name>")
+def taxon_file(run_id: str, folder: str, name: str):
+    """A file of a taxon drawn by "Look at one taxon"."""
+    path = _get_run(run_id).taxon_file(folder, name)
     if path is None:
         abort(404)
     return send_file(path, mimetype=MEDIA_TYPES.get(path.suffix),

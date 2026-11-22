@@ -194,6 +194,14 @@ Templates of all three are on the website (in every error message, and under
     "uncultured"). At genus and species the greys can be large: many rare taxa, and taxa named only to
     a coarser level. The caption says how much the 12 cover and how large each grey is. Names are kept
     as your table writes them (GTDB suffixes included); where two taxa share a name, the family is added.
+  - **Look at one taxon:** under the composition figures, pick a level and start typing a name: the list
+    holds every taxon your table names at that level, most abundant first ("uncultured", "unclassified" and
+    similar are not offered: they are not one taxon). "Show" draws one bar per sample, the taxon's share of
+    that sample's whole total, highest to lowest (hover for the reads, for a table of counts); with groups,
+    also a box per group with every sample as a dot. The line under it says in how many samples the taxon
+    is found, and its mean and median share. It is descriptive only, with no test (to find bacteria that
+    differ between groups, run miMic). Taxa are counted and named as in the composition figures. The data
+    (CSV) has each sample's share and its reads (or, for relative abundances, the table's own value).
   - **Alpha diversity:** Shannon index and richness, as a box per group with
     every sample shown. With groups: the test is chosen by normality
     (Shapiro-Wilk in each group: t-test or ANOVA if every group looks normal,

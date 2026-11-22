@@ -9,7 +9,10 @@ Every goal runs the same way: build the one canonical ``Dataset`` (see
 
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass, replace
+import json
+import shutil
+import uuid
+from dataclasses import asdict, dataclass, field, replace
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -49,7 +52,7 @@ from microplatform.core.profiler import (
 )
 from microplatform.engines import ENGINES
 from microplatform.examples import EXAMPLE_COUNTS, EXAMPLE_TAGS
-from microplatform.reports import figures, overview
+from microplatform.reports import composition, figures, overview
 from microplatform.reports.bundle import build_bundle
 from microplatform.router.goals import GoalOption, Recommendation, get_goal, goal_options, recommend
 
@@ -64,6 +67,7 @@ SETTING_WORDS = {
 __all__ = [
     "RunView", "add_labels", "add_metabolites", "analyze", "build_bundle", "build_dataset", "describe", "run_goal",
     "set_preprocessing", "set_taxonomy_level", "start_example_run", "start_run", "taxonomy_levels",
+    "taxon_choices", "look_at_taxon", "taxon_lookup", "taxon_ranks", "TaxonLookup",
 ]
 
 # --- The run's taxonomy level ---------------------------------------------------------------
@@ -169,9 +173,13 @@ class RunView:
     @property
     def composition_levels(self) -> list[str]:
         """The ranks the composition figures were drawn at, coarsest first (empty if only one: no switch)."""
-        drawn = {f.level for f in self.figures if f.section == "overview" and f.level}
-        levels = [rank for rank in RANKS if rank in drawn]
+        levels = _drawn_ranks(self.figures)
         return levels if len(levels) > 1 else []
+
+    @property
+    def taxon_ranks(self) -> list[str]:
+        """The ranks "Look at one taxon" offers: every rank the composition figures were drawn at."""
+        return _drawn_ranks(self.figures) if self.show_results else []
 
     def composition_level(self, requested: str | None = None) -> str:
         """The rank to show: the one asked for if it was drawn, else phylum (or the coarsest drawn)."""
@@ -514,6 +522,110 @@ def run_goal(run: runs.Run, goal_id: str, cache_dir: Path | None = None, choices
         run.set_status("failed", error={"message": exc.message, "fix": exc.fix})
         raise
     run.set_status("done")
+
+
+# --- Look at one taxon ----------------------------------------------------------------------
+# The results page draws one taxon across the samples on demand (there are too many to draw ahead), from
+# the uploaded table, at any rank the composition figures were drawn at. Descriptive: no test, and nothing
+# here changes the run's data or results. The latest TAXA_KEPT taxa drawn are kept, the oldest removed.
+TAXA_KEPT = 8
+
+
+def taxon_choices(run: runs.Run, rank: str) -> list[str]:
+    """The named taxa of ``rank`` in the run's uploaded table, most abundant first (``composition.taxon_choices``),
+    worked out once and kept with the run's figures."""
+    if rank not in taxon_ranks(run):
+        return []
+    cache = run.taxa_dir / f"choices_{rank}.json"
+    if cache.exists():
+        return json.loads(cache.read_text(encoding="utf-8"))
+    names = [str(n) for n in composition.taxon_choices(count_matrix(run.counts()), rank).index]
+    run.taxa_dir.mkdir(parents=True, exist_ok=True)
+    cache.write_text(json.dumps(names), encoding="utf-8")
+    return names
+
+
+def look_at_taxon(run: runs.Run, rank: str, taxon: str) -> tuple[str, list[figures.ExportedFigure]]:
+    """Draw one taxon (``overview.taxon_figures``) in every format, or reuse it if it was drawn already; returns
+    the folder (inside ``Run.taxa_dir``) and its figures. ``UserFacingError`` if the rank or taxon is not offered."""
+    if rank not in taxon_ranks(run):
+        raise UserFacingError(f"Composition was not drawn at {rank} level for this run.",
+                              "Choose one of the levels offered.")
+    taxon = taxon.strip()
+    if taxon not in set(taxon_choices(run, rank)):
+        raise UserFacingError(f"“{taxon}” is not a {rank} in your table.",
+                              f"Choose one from the list of {composition.PLURALS[rank]} (start typing to search it).")
+    folder = overview.taxon_file_name(rank, taxon)
+    done = run.taxa_dir / folder
+    if not (done / "figures.json").exists():
+        counts = count_matrix(run.counts())
+        label_profile = _profile_labels(run, list(counts.index), issues=[])
+        usable = label_profile is not None and label_profile.ok
+        drawn = overview.taxon_figures(counts, rank, taxon, label_profile.values if usable else None,
+                                       label_profile.kind if usable else None)
+        work = run.taxa_dir / f".drawing-{uuid.uuid4().hex}"  # drawn aside, then put in place whole
+        figures.export(drawn, work)
+        try:
+            work.rename(done)
+        except OSError:  # drawn at the same moment by another request: keep that one
+            shutil.rmtree(work, ignore_errors=True)
+        _forget_old_taxa(run, keep=folder)
+    return folder, figures.load_manifest(done)
+
+
+@dataclass(frozen=True)
+class TaxonLookup:
+    """What the results page's "Look at one taxon" shows: the rank, its taxa (most abundant first), the taxon
+    asked for, and its figures (in ``Run.taxa_dir / folder``) or why there are none (message, fix)."""
+
+    rank: str
+    choices: list[str]
+    taxon: str = ""
+    folder: str | None = None
+    figures: list[figures.ExportedFigure] = field(default_factory=list)
+    error: dict | None = None
+
+    @property
+    def plural(self) -> str:
+        return composition.PLURALS[self.rank]
+
+
+def taxon_lookup(view: RunView, rank: str | None = None, taxon: str | None = None,
+                 composition: str | None = None) -> TaxonLookup | None:
+    """"Look at one taxon" for the results page (None if the run has no composition figures): ``rank`` if it is
+    offered, else the composition rank shown; with ``taxon``, its figures, drawn now if they are not yet."""
+    ranks = view.taxon_ranks
+    if not ranks:
+        return None
+    if rank not in ranks:
+        rank = view.composition_level(composition)
+    rank = rank if rank in ranks else ranks[0]
+    taxon = (taxon or "").strip()
+    found = TaxonLookup(rank, taxon_choices(view.run, rank), taxon)
+    if not taxon:
+        return found
+    try:
+        folder, figs = look_at_taxon(view.run, rank, taxon)
+    except UserFacingError as exc:
+        return replace(found, error={"message": exc.message, "fix": exc.fix})
+    return replace(found, folder=folder, figures=figs)
+
+
+def _forget_old_taxa(run: runs.Run, keep: str) -> None:
+    drawn = sorted((p for p in run.taxa_dir.iterdir() if p.is_dir() and not p.name.startswith(".")),
+                   key=lambda p: p.stat().st_mtime, reverse=True)
+    for old in [p for p in drawn if p.name != keep][TAXA_KEPT - 1:]:
+        shutil.rmtree(old, ignore_errors=True)
+
+
+def taxon_ranks(run: runs.Run) -> list[str]:
+    """The ranks a taxon can be looked at for this run: those its composition figures were drawn at."""
+    return _drawn_ranks(figures.load_manifest(run.figures_dir))
+
+
+def _drawn_ranks(figs: list[figures.ExportedFigure]) -> list[str]:
+    drawn = {f.level for f in figs if f.section == "overview" and f.level}
+    return [rank for rank in RANKS if rank in drawn]
 
 
 def _dataset_name(run: runs.Run) -> str | None:

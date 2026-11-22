@@ -581,3 +581,16 @@ pre.code { background: var(--surface-2); border: 1px solid var(--border); paddin
 .level-switch strong {
   border-bottom: 2px solid currentColor;
 }
+
+/* "Look at one taxon": a level, a searchable list of its taxa, and the taxon's figures underneath. */
+.taxon-look { margin: 1.25rem 0; padding: 0.9rem 1rem; border: 1px solid var(--border); border-radius: 12px; }
+.taxon-look h4 { margin: 0 0 0.6rem; font-size: 1rem; }
+.taxon-pick { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem 0.75rem; }
+.taxon-pick label { font-weight: 700; }
+.taxon-pick select, .taxon-pick input {
+  font: inherit; padding: 0.35rem 0.5rem; border: 1px solid var(--border); border-radius: 6px;
+  background: var(--surface); color: inherit; max-width: 100%;
+}
+.taxon-pick input { flex: 1 1 16rem; min-width: 0; }
+.taxon-look .muted { margin: 0.5rem 0 0.75rem; }
+.taxon-look .figures { margin-top: 0.75rem; }

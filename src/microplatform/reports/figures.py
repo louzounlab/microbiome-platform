@@ -153,6 +153,7 @@ class Figure:
     # "Method details", so the caption stays short.
     details: str = ""
     level: str = ""  # composition figures: the rank they show (the page shows one rank at a time)
+    hover_data: tuple[str, ...] = ()  # bar, box: columns passed to the hover as %{customdata[0]}, …
 
 
 @dataclass(frozen=True)
@@ -596,7 +597,8 @@ def _write_static(fig: Figure, out_dir: Path) -> None:
             ax.bar(range(len(fig.data)), fig.data[fig.y], color=ACCENT, width=0.85)
             ax.set_xticks([])
             ax.set_xlim(-0.6, len(fig.data) - 0.4)
-            ax.yaxis.set_major_formatter(matplotlib.ticker.StrMethodFormatter("{x:,.0f}"))
+            if fig.log_y:  # reads: 1,000 rather than 10^3 (a % axis keeps its decimals)
+                ax.yaxis.set_major_formatter(matplotlib.ticker.StrMethodFormatter("{x:,.0f}"))
         elif fig.kind == "histogram":
             ax.hist(fig.data[fig.x], bins=20, range=fig.x_range, color=ACCENT, edgecolor="white")
         elif fig.kind == "barh":
@@ -918,6 +920,7 @@ def to_plotly(fig: Figure) -> go.Figure:
         out.update_yaxes(range=[0, 100])
     elif fig.kind == "bar":
         out.add_trace(go.Bar(x=fig.data[fig.x], y=fig.data[fig.y], marker_color=ACCENT,
+                             customdata=fig.data[list(fig.hover_data)] if fig.hover_data else None,
                              hovertemplate=fig.hover))
     elif fig.kind == "histogram":
         low, high = fig.x_range or (None, None)
@@ -1110,6 +1113,7 @@ def _plotly_boxes(fig: Figure) -> go.Figure:
             out.add_trace(go.Box(
                 y=members[fig.y], name=names[-1],
                 boxpoints="all", jitter=0.45, pointpos=0, text=members[fig.label] if fig.label else None,
+                customdata=members[list(fig.hover_data)] if fig.hover_data else None,
                 marker={"color": colors[group], "size": 6, "opacity": 0.8, "line": {"color": "white", "width": 0.5}},
                 line={"color": BOX_LINE, "width": 1}, fillcolor="rgba(0,0,0,0)", hovertemplate=fig.hover,
                 showlegend=False,

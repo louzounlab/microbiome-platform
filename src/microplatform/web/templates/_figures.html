@@ -1,7 +1,12 @@
 {# A grid of figures: interactive in the page (PNG fallback), with every download.
    The title is a real heading (screen readers can jump to it, and it wraps on phones);
    the interactive plot drops its own copy of the title. #}
-{% macro figure_grid(run_id, figs) -%}
+{# ``folder``: the figures of one taxon drawn by "Look at one taxon" (served from that folder). #}
+{% macro file_url(run_id, folder, name, download=None) -%}
+  {%- if folder -%}{{ url_for('main.taxon_file', run_id=run_id, folder=folder, name=name, download=download) }}
+  {%- else -%}{{ url_for('main.figure_file', run_id=run_id, name=name, download=download) }}{%- endif -%}
+{%- endmacro %}
+{% macro figure_grid(run_id, figs, folder=None) -%}
 <div class="figures{% if figs|length == 1 %} figures-single{% endif %}" data-plotly="{{ url_for('main.plotly_js') }}">
   {% for fig in figs %}
     <figure class="figure{% if fig.tall %} figure-tall{% endif %}{% if fig.wide %} figure-wide{% endif %}{% if fig.rendered %} figure-rendered{% endif %}" aria-labelledby="fig-{{ fig.name }}">
@@ -9,13 +14,13 @@
       {% if fig.rendered %}
         {# Drawn by the tool's own code (e.g. miMic's cladogram): its SVG as it is, no interactive version. #}
         <div class="plot">
-          <img src="{{ url_for('main.figure_file', run_id=run_id, name=fig.files.svg) }}"
+          <img src="{{ file_url(run_id, folder, fig.files.svg) }}"
                alt="{{ fig.title }}. {{ fig.caption }}" loading="lazy">
         </div>
       {% else %}
-        <div class="plot" data-plot="{{ url_for('main.figure_file', run_id=run_id, name=fig.files.json) }}"
+        <div class="plot" data-plot="{{ file_url(run_id, folder, fig.files.json) }}"
              data-label="{{ fig.title }}">
-          <img src="{{ url_for('main.figure_file', run_id=run_id, name=fig.files.png) }}"
+          <img src="{{ file_url(run_id, folder, fig.files.png) }}"
                alt="{{ fig.title }}. {{ fig.caption }}" loading="lazy">
         </div>
       {% endif %}
@@ -30,7 +35,7 @@
                          + ([("original_png", fig.original_label ~ " (PNG)")] if fig.files.original_png else [])
                          + ([("original_svg", fig.original_label ~ " (SVG)")] if fig.files.original_svg else []) %}
         {% for fmt, label in formats %}
-          <a href="{{ url_for('main.figure_file', run_id=run_id, name=fig.files[fmt], download=1) }}">{{ label }}<span class="visually-hidden"> of “{{ fig.title }}”</span></a>{% if not loop.last %} ·{% endif %}
+          <a href="{{ file_url(run_id, folder, fig.files[fmt], 1) }}">{{ label }}<span class="visually-hidden"> of “{{ fig.title }}”</span></a>{% if not loop.last %} ·{% endif %}
         {% endfor %}
       </p>
     </figure>

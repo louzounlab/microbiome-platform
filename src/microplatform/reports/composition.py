@@ -83,7 +83,8 @@ _RANKS = re.compile(r"\s*[;|,]\s*")
 _PREFIX = re.compile(r"^[a-z]__")
 
 __all__ = ["phylum_percent", "gtdb_base", "merged_note", "top_phyla", "phylum_colors", "composition_figure",
-           "split_violin_figure", "rank_percent", "top_taxa", "fine_colors", "fine_composition_figure"]
+           "split_violin_figure", "rank_percent", "top_taxa", "fine_colors", "fine_composition_figure",
+           "taxon_choices", "taxon_abundance"]
 
 
 class CompositionError(UserFacingError):
@@ -320,6 +321,21 @@ def rank_percent(table: pd.DataFrame, rank: str) -> tuple[pd.DataFrame, dict]:
     """
     if rank not in FINE_RANKS:
         raise ValueError(f"rank must be one of {FINE_RANKS}")
+    by_lineage, totals = _rank_sums(table, rank)
+    valid = totals > 0
+    if not valid.any():
+        raise CompositionError("No sample has any abundance.", "Check that the table holds counts or abundances.")
+    percent = by_lineage.loc[valid].div(totals[valid], axis=0) * 100
+    gap = 100 - percent.sum(axis=1)
+    percent[not_named(rank)] = gap.where(gap > NOISE, 0.0)  # rounding left over is not abundance
+    return percent, {"samples_dropped": int((~valid).sum()), "named_taxa": by_lineage.shape[1],
+                     "not_named_percent": float(percent[not_named(rank)].mean())}
+
+
+def _rank_sums(table: pd.DataFrame, rank: str) -> tuple[pd.DataFrame, pd.Series]:
+    """Samples × named taxa of ``rank`` (``TAXON_RANKS``), summed by lineage in the table's own values, and
+    each sample's whole total (``rank_percent`` says how). At phylum, a phylum's GTDB variants and its old
+    and new names are one taxon, as in the phylum figures."""
     index = LINEAGE_RANKS.index(rank)
     values = table.apply(pd.to_numeric, errors="coerce")
     array = values.to_numpy(dtype=float)
@@ -340,8 +356,11 @@ def rank_percent(table: pd.DataFrame, rank: str) -> tuple[pd.DataFrame, dict]:
         totals = values.sum(axis=1)
     # An old and a new name of one phylum (Firmicutes, Bacillota: MetaPhlAn's database mixes them) are one
     # lineage, as in the phylum figures; otherwise its classes would be split in two.
-    lineages = {i: (_same_phylum(_name_at(ranks[i], 1)),
-                    *(_name_at(ranks[i], j) for j in range(2, index + 1))) for i in keep}
+    def phylum(i: int) -> str:
+        name = _name_at(ranks[i], 1)
+        return _same_phylum(gtdb_base(name) if rank == "phylum" and MERGE_GTDB_VARIANTS else name)
+
+    lineages = {i: (phylum(i), *(_name_at(ranks[i], j) for j in range(2, index + 1))) for i in keep}
     named = [i for i in keep if lineages[i][-1]]
     if named:
         keys = [_SEP.join(lineages[i]) for i in named]  # one key per lineage (a list of tuples would not do)
@@ -349,14 +368,39 @@ def rank_percent(table: pd.DataFrame, rank: str) -> tuple[pd.DataFrame, dict]:
         by_lineage.columns = _labels([tuple(k.split(_SEP)) for k in by_lineage.columns], rank)
     else:
         by_lineage = pd.DataFrame(index=values.index)
+    return by_lineage, totals
+
+
+# --- one taxon: the results page's "Look at one taxon" ------------------------------------------
+TAXON_RANKS = ("phylum", *FINE_RANKS)
+
+
+def taxon_choices(table: pd.DataFrame, rank: str) -> pd.Series:
+    """Every named taxon of ``rank`` found in the table (the labels of ``rank_percent``), with its mean % of a
+    sample's whole total, most abundant first. Abundance not named at the rank ("uncultured", "unclassified",
+    …) is not a taxon, so it is not offered."""
+    if rank not in TAXON_RANKS:
+        raise ValueError(f"rank must be one of {TAXON_RANKS}")
+    sums, totals = _rank_sums(table, rank)
     valid = totals > 0
-    if not valid.any():
-        raise CompositionError("No sample has any abundance.", "Check that the table holds counts or abundances.")
-    percent = by_lineage.loc[valid].div(totals[valid], axis=0) * 100
-    gap = 100 - percent.sum(axis=1)
-    percent[not_named(rank)] = gap.where(gap > NOISE, 0.0)  # rounding left over is not abundance
-    return percent, {"samples_dropped": int((~valid).sum()), "named_taxa": by_lineage.shape[1],
-                     "not_named_percent": float(percent[not_named(rank)].mean())}
+    percent = sums.loc[valid].div(totals[valid], axis=0) * 100
+    mean = percent.mean()
+    found = mean[(sums.loc[valid] > 0).any()]
+    return found.sort_values(ascending=False, kind="stable").rename("mean_percent")
+
+
+def taxon_abundance(table: pd.DataFrame, rank: str, taxon: str) -> pd.DataFrame | None:
+    """Per sample (with a total above zero): ``percent`` (of the sample's whole total) and ``value`` (the
+    table's own value: reads, for a table of counts) of one taxon (a label from ``taxon_choices``); None if the
+    table has no such taxon."""
+    if rank not in TAXON_RANKS:
+        raise ValueError(f"rank must be one of {TAXON_RANKS}")
+    sums, totals = _rank_sums(table, rank)
+    if taxon not in sums.columns:
+        return None
+    valid = totals > 0
+    value = sums.loc[valid, taxon]
+    return pd.DataFrame({"percent": value / totals[valid] * 100, "value": value})
 
 
 def _labels(lineages: list[tuple[str, ...]], rank: str) -> list[str]:

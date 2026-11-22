@@ -382,7 +382,50 @@
           {% endfor %}
         </nav>
       {% endif %}
-      {{ figure_grid(view.run.id, view.overview_at(composition)) }}
+      {% set overview_shown = view.overview_at(composition) %}
+      {% if taxon %}
+        {# The composition figures, then "Look at one taxon" beside them, then the rest of the overview. #}
+        {{ figure_grid(view.run.id, overview_shown|selectattr("level")|list) }}
+        <div class="taxon-look" id="taxon" role="group" aria-labelledby="taxon-heading">
+          <h4 id="taxon-heading">Look at one taxon</h4>
+          {# A plain GET form: the choice is in the link, so it can be shared, and it works without JavaScript. #}
+          <form class="taxon-pick" method="get" action="{{ url_for('main.analysis', run_id=view.run.id) }}#taxon">
+            {% if view.composition_levels %}
+              <input type="hidden" name="composition" value="{{ view.composition_level(composition) }}">
+            {% endif %}
+            <label for="taxon-level">Level</label>
+            <select name="taxon_level" id="taxon-level"
+                    data-choices="{{ url_for('main.taxon_names', run_id=view.run.id) }}">
+              {% for rank in view.taxon_ranks %}
+                <option value="{{ rank }}" {% if rank == taxon.rank %}selected{% endif %}>{{ rank|capitalize }}</option>
+              {% endfor %}
+            </select>
+            <label for="taxon-name">Taxon</label>
+            <input type="search" name="taxon" id="taxon-name" list="taxon-choices" value="{{ taxon.taxon }}"
+                   placeholder="Start typing a name" autocomplete="off" spellcheck="false"
+                   aria-describedby="taxon-help">
+            <datalist id="taxon-choices">
+              {% for name in taxon.choices %}<option value="{{ name }}">{% endfor %}
+            </datalist>
+            <button class="btn btn-secondary" type="submit">Show</button>
+          </form>
+          <p class="muted" id="taxon-help">{{ taxon.choices|length|count }} {{ taxon.plural }} named in your table,
+            listed most abundant first. One bar per sample shows the taxon's share of that sample's whole total;
+            with groups, a box per group as well. Descriptive only: no test.</p>
+          {% if taxon.error %}
+            <div class="alert alert-error" role="alert">
+              <p class="alert-message">{{ taxon.error.message }}</p>
+              {% if taxon.error.fix %}<p class="alert-fix"><strong>How to fix:</strong> {{ taxon.error.fix }}</p>{% endif %}
+            </div>
+          {% endif %}
+          {% if taxon.figures %}
+            {{ figure_grid(view.run.id, taxon.figures, taxon.folder) }}
+          {% endif %}
+        </div>
+        {{ figure_grid(view.run.id, overview_shown|rejectattr("level")|list) }}
+      {% else %}
+        {{ figure_grid(view.run.id, overview_shown) }}
+      {% endif %}
     </section>
   {% endif %}
 
