@@ -1,7 +1,8 @@
 # Microbiome Platform — the website (gunicorn), as a *user* service: for a shared server where
 # the platform runs under your own account, without administrator rights.
-# It listens only on a socket file in a folder only you can open (MICROPLATFORM_BIND), so other
-# users of the machine cannot reach it either; you open it through an SSH tunnel.
+# It listens where MICROPLATFORM_BIND says: 127.0.0.1:8000 by default (inside the server only, not the
+# network; every account on the machine can reach it), or a socket file in a private folder (yourself
+# only; see microplatform.user.env.example). You open it through an SSH tunnel.
 # Install (no sudo):
 #   mkdir -p ~/.config/systemd/user && cp deploy/systemd-user/*.service ~/.config/systemd/user/
 #   systemctl --user daemon-reload && systemctl --user enable --now microplatform-web microplatform-worker

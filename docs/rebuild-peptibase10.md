@@ -139,7 +139,8 @@ systemctl --user is-active microplatform-web microplatform-worker      # active,
 curl -s -o /dev/null -w "%{http_code}\n" http://127.0.0.1:8000/          # 200
 ```
 
-From the laptop: `ssh -N -L 8000:127.0.0.1:8000 parashn@peptibase10.math.biu.ac.il`, open
+From the laptop: `ssh -N -L 8000:127.0.0.1:8000 parashn@peptibase10.math.biu.ac.il` (or, with the
+laptop's Bitvise tunnel alias: `ssh -4 -N -L 8000:127.0.0.1:8000 peptibase10`), open
 http://127.0.0.1:8000, click **Try the example**, run it, and download the ZIP.
 
 **LOCATE's numbers depend on the processor and the system** (a neural network is not bit-exact
