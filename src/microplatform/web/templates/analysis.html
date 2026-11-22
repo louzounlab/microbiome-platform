@@ -368,7 +368,21 @@
         diversity figures add group tests: these are <strong>exploratory</strong> (computed on the uploaded
         data, not corrected across this report, and not the tools' findings). To find which bacteria differ,
         run “Find bacteria that differ” (miMic).</p>
-      {{ figure_grid(view.run.id, view.overview_figures) }}
+      {% if view.composition_levels %}
+        {# Plain links: each rank's figures were drawn with the run, so switching re-runs nothing. #}
+        {% set shown = view.composition_level(composition) %}
+        <nav class="level-switch" id="composition" aria-label="Composition level">
+          <span>Show composition at:</span>
+          {% for level in view.composition_levels %}
+            {% if level == shown %}
+              <strong aria-current="true">{{ level|capitalize }}</strong>
+            {% else %}
+              <a href="{{ url_for('main.analysis', run_id=view.run.id, composition=level) }}#composition">{{ level|capitalize }}</a>
+            {% endif %}
+          {% endfor %}
+        </nav>
+      {% endif %}
+      {{ figure_grid(view.run.id, view.overview_at(composition)) }}
     </section>
   {% endif %}
 

@@ -71,6 +71,7 @@ __all__ = [
 # Offered: phylum down to the deepest rank the data check finds named for most taxa, and always species
 # (the default, the MIPMLP paper's setting). Kingdom is not offered: it leaves one or two features.
 COARSEST_LEVEL = 2  # phylum
+COMPOSITION_DEFAULT = "phylum"  # the composition figures' rank unless the page asks for another
 COARSE_LEVELS = (2, 3)  # phylum, class: few features, little for the image-based tools
 # Phylum: GIMIC's images (3 rows) are too small for its smoothing, so its distances are undefined there.
 COARSE_HINTS = {2: "few features: less informative for iMic, and GIMIC cannot run at this level",
@@ -161,8 +162,36 @@ class RunView:
 
     @property
     def overview_figures(self) -> list[figures.ExportedFigure]:
-        """The data overview (composition, diversity, sparsity): descriptive, the same for every tool."""
-        return [f for f in self.figures if f.section == "overview"]
+        """The data overview (composition, diversity, sparsity): descriptive, the same for every tool.
+        Composition at phylum (see ``overview_at`` for the other ranks)."""
+        return self.overview_at(COMPOSITION_DEFAULT)
+
+    @property
+    def composition_levels(self) -> list[str]:
+        """The ranks the composition figures were drawn at, coarsest first (empty if only one: no switch)."""
+        drawn = {f.level for f in self.figures if f.section == "overview" and f.level}
+        levels = [rank for rank in RANKS if rank in drawn]
+        return levels if len(levels) > 1 else []
+
+    def composition_level(self, requested: str | None = None) -> str:
+        """The rank to show: the one asked for if it was drawn, else phylum (or the coarsest drawn)."""
+        levels = self.composition_levels
+        if requested in levels:
+            return requested
+        return COMPOSITION_DEFAULT if COMPOSITION_DEFAULT in levels or not levels else levels[0]
+
+    def overview_at(self, level: str | None = None) -> list[figures.ExportedFigure]:
+        """The overview with its composition figures at ``level`` (phylum by default), where phylum's are."""
+        shown = self.composition_level(level)
+        overview_figs = [f for f in self.figures if f.section == "overview"]
+        out, placed = [], False
+        for fig in overview_figs:
+            if not fig.level:
+                out.append(fig)
+            elif not placed:  # the first composition figure's place: the chosen rank's figures, in order
+                out.extend(f for f in overview_figs if f.level == shown)
+                placed = True
+        return out
 
     @property
     def overview_note(self) -> str | None:
@@ -472,6 +501,9 @@ def run_goal(run: runs.Run, goal_id: str, cache_dir: Path | None = None, choices
         figures.export(figures.preprocessing_figures(dataset.raw_counts, dataset.settings), run.figures_dir)
         figures.export(overview.overview_figures(dataset.raw_counts, dataset.settings, dataset.labels,
                                                  dataset.label_kind, dataset=_dataset_name(run)), run.figures_dir)
+        # The same composition at every finer rank the table names, for the page's "Composition at" switch.
+        figures.export(overview.composition_levels(dataset.raw_counts, dataset.labels, dataset.label_kind,
+                                                   dataset=_dataset_name(run)), run.figures_dir)
         # Absolute: the engines change into this folder, so a relative one (mp.analyze(out_dir="runs"))
         # would point somewhere else once inside it.
         found = engine.run(dataset, (run.path / "work" / engine.name.lower()).resolve(), choices)

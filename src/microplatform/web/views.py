@@ -130,7 +130,7 @@ def download_file(name: str):
 @bp.get("/runs/<run_id>")
 def analysis(run_id: str):
     return render_template("analysis.html", view=workflows.describe(_get_run(run_id)),
-                           email_enabled=_notifier() is not None)
+                           email_enabled=_notifier() is not None, composition=request.args.get("composition"))
 
 
 @bp.post("/runs/<run_id>/run")

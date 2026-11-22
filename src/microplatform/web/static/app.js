@@ -111,8 +111,20 @@ if (figureGrid) {
               // columns under the bars, with the height that takes (no scrolling inside the legend).
               for (const note of fig.layout.annotations || []) note.font = { ...note.font, size: 11 };
               fig.layout.yaxis = { ...fig.layout.yaxis, title: { text: "%" } };
-              fig.layout.legend = { ...fig.layout.legend, x: -0.14, xanchor: "left", entrywidth: 0.45,
+              // Long names (genus, species) get one column, so none is cut off at the edge.
+              const longest = Math.max(0, ...fig.data.map((trace) => String(trace.name || "").length));
+              const oneColumn = longest > 16;
+              fig.layout.legend = { ...fig.layout.legend, x: -0.14, xanchor: "left",
+                                    entrywidth: oneColumn ? 1 : 0.45,
                                     entrywidthmode: "fraction", font: { size: 10 } };
+              if (oneColumn) {
+                // One line per name under the bars: the figure gets the height that takes (no scrolling).
+                const lines = fig.data.filter((trace) => trace.showlegend !== false).length;
+                const below = 28 * lines + 70;
+                fig.layout.margin = { ...fig.layout.margin, b: below };
+                fig.layout.legend = { ...fig.layout.legend, y: -0.12, yanchor: "top", maxheight: 1 };
+                fig.layout.height = 300 + below;
+              }
               el.style.aspectRatio = "3 / 4";
             }
             for (const name of axes) {

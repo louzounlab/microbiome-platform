@@ -175,7 +175,9 @@ def test_counts_only_runs_the_overview_and_gimic_without_errors(client):
     figures = json.loads((run / "figures" / "figures.json").read_text(encoding="utf-8"))
     entries = figures if isinstance(figures, list) else list(figures.values())
     overview = [f for f in entries if f.get("section") == "overview"]
-    assert len(overview) == 6 and any(f.get("name", "") == "gimic_map" or "gimic_map" in str(f) for f in entries)
+    phylum = [f for f in overview if f.get("level", "") in ("", "phylum")]  # finer ranks: the "Composition at" switch
+    assert len(phylum) == 6 and len(overview) == 6 + 2 * 5  # bars and pie at class, order, family, genus, species
+    assert any(f.get("name", "") == "gimic_map" or "gimic_map" in str(f) for f in entries)
     assert all("Descriptive only, not a statistical test." in f["caption"] for f in overview)
     assert not list((run / "figures").glob("*_tests.csv"))  # no group tests without groups
 

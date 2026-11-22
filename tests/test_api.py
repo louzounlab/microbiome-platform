@@ -14,10 +14,12 @@ import microplatform as mp
 from microplatform import workflows
 from microplatform.apidoc import api_reference
 from microplatform.examples import EXAMPLE_COUNTS, EXAMPLE_TAGS
+from microplatform.reports.composition import FINE_RANKS
 from microplatform.reports.overview import FIGURE_NAMES as OVERVIEW
 from microplatform.references import TOOLS, get_tool
 from microplatform.router.goals import GOALS
 
+FINER = {f"composition_{kind}_{rank}" for rank in FINE_RANKS for kind in ("bars", "pie")}  # the "Composition at" switch
 
 ROOT = Path(__file__).parents[1]
 
@@ -108,7 +110,7 @@ def test_analyze_runs_a_whole_analysis_without_the_website(tmp_path):
     # With labels, the recommended task is miMic (its own cladogram first); data-quality figures come with every run.
     assert view.engine["tool"] == "miMic"
     assert {f.name for f in view.figures} == {"reads_per_sample", "reads_vs_taxa", "mimic_cladogram", "mimic_significant_taxa",
-                                               "mimic_rp_sp", *OVERVIEW}
+                                               "mimic_rp_sp", *OVERVIEW, *FINER}
 
 
 def test_every_goal_has_a_tool_reference():

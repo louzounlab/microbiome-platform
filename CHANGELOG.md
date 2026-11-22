@@ -17,6 +17,11 @@ All notable changes to `microplatform`. The format follows
   that the few features make them less informative; at phylum, GIMIC's distances are undefined, so it
   stops with a message. The reproducibility record says at which level the tools were reproduced
   against the authors' published results (species).
+- Composition at finer levels: the data overview's "Show composition at" switch shows the composition
+  bars and pie at phylum (the default, unchanged) or at any finer rank the table names (class to
+  species), all drawn with the run from the uploaded table. Below phylum: the 12 most abundant taxa,
+  "Other (named, rare)" and "Not named at <rank>" (so each bar is still 100% of the sample); names as in
+  the table, with the family added where two share a name. The analysis is not affected.
 
 ### Fixed
 - Results page: a chart that sets its own height (miMic's taxa bars, the RP vs SP check) no longer

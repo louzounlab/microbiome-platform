@@ -152,6 +152,7 @@ class Figure:
     # The fine print (method, settings, provenance): kept with the figure in figures.json and shown under
     # "Method details", so the caption stays short.
     details: str = ""
+    level: str = ""  # composition figures: the rank they show (the page shows one rank at a time)
 
 
 @dataclass(frozen=True)
@@ -168,6 +169,7 @@ class ExportedFigure:
     rendered: bool = False  # drawn by a tool's own plotting code (RenderedFigure): no interactive plotly version
     original_label: str = ""  # files["original_<format>"]: the tool's own drawing of the same result
     details: str = ""  # Figure.details: the fine print, under "Method details"
+    level: str = ""  # Figure.level: a composition figure's rank ("" for every other figure)
 
 
 @dataclass
@@ -407,7 +409,7 @@ def export(figures: list[Figure], out_dir: Path) -> list[ExportedFigure]:
         (out_dir / f"{fig.name}.json").write_text(interactive.to_json(), encoding="utf-8")
         exported.append(ExportedFigure(
             fig.name, fig.title, fig.caption, files, fig.section, tall=fig.kind == "barh", wide=_is_wide(fig),
-            original_label=fig.original_label if fig.originals else "", details=fig.details,
+            original_label=fig.original_label if fig.originals else "", details=fig.details, level=fig.level,
         ))
     _add_to_manifest(exported, out_dir)
     return exported

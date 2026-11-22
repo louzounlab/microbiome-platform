@@ -569,3 +569,15 @@ pre.code { background: var(--surface-2); border: 1px solid var(--border); paddin
   .spinner { animation-duration: 3s; }
   .question-card:hover { transform: none; }
 }
+
+/* The composition's "Show composition at" switch: one rank at a time, as links. */
+.level-switch {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.25rem 0.9rem;
+  margin: 0.5rem 0 1rem;
+}
+.level-switch strong {
+  border-bottom: 2px solid currentColor;
+}

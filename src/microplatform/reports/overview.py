@@ -26,6 +26,11 @@ Composition is shown at phylum level: the 12 phyla with the highest mean get a c
 set), the rest are summed as "Other" in grey. A phylum has the same colour in every
 composition figure and every dataset; a group has the same colour in the diversity boxes,
 the PCoA and the violins.
+
+``composition_levels`` draws the same composition figures at each finer rank the table names (class to
+species: ``composition_bars_<rank>``, ``composition_pie_<rank>``, and the violins if asked), for the
+results page's "Composition at" switch. They are from the same uploaded table, drawn once with the run;
+the analysis does not use them (see ``composition.py``: "Not named at <rank>" and "Other (named, rare)").
 """
 
 from __future__ import annotations
@@ -58,7 +63,7 @@ FIGURE_NAMES = ("composition_bars", "composition_pie", "alpha_diversity", "beta_
                 "taxa_prevalence")
 VIOLIN = "composition_violin"  # only with split_violin=True and two groups, right after the pie
 
-__all__ = ["overview_figures", "alpha_diversity", "bray_curtis_pcoa", "sample_groups"]
+__all__ = ["overview_figures", "composition_levels", "alpha_diversity", "bray_curtis_pcoa", "sample_groups"]
 
 OVERVIEW_UNAVAILABLE = ("The descriptive overview is not drawn for this table: it has negative values (it is "
                         "already log-transformed or z-scored), and composition, diversity and distances between "
@@ -106,6 +111,50 @@ def overview_figures(
             figures.append(pcoa)
     prevalence = taxa_prevalence(counts, settings, section="overview")
     return figures + [_taxa_per_sample(counts), replace(prevalence, caption=f"{prevalence.caption} {DESCRIPTIVE}")]
+
+
+def composition_levels(
+    counts: pd.DataFrame,
+    labels: pd.Series | None = None,
+    label_kind: LabelKind | None = None,
+    dataset: str | None = None,
+    palette: str = PALETTE_DEFAULT,
+    split_violin: bool = False,
+    top_n: int = composition.TOP_TAXA,
+) -> list[Figure]:
+    """The composition bars and pie (and the split violins if asked) at every finer rank the table names
+    (class to species), from the user's own table, as ``overview_figures`` draws them at phylum.
+
+    A rank where the table names no taxon is left out; so is everything for a table with negative values.
+    """
+    if (counts.to_numpy() < 0).any():
+        return []
+    with_reads = counts.loc[counts.sum(axis=1) > 0]
+    grouped = label_kind in GROUPABLE and labels is not None
+    groups = sample_groups(with_reads.index, labels) if grouped else None
+    dropped = len(counts) - len(with_reads)
+    left_out = f" {dropped:,} sample{'s' if dropped != 1 else ''} without reads {'are' if dropped != 1 else 'is'} left out." if dropped else ""
+    figures = []
+    for rank in composition.FINE_RANKS:
+        try:
+            percent, info = composition.rank_percent(with_reads, rank)
+        except CompositionError:
+            return []
+        if not info["named_taxa"]:
+            continue
+        top = composition.top_taxa(percent, rank, top_n)
+        colors = composition.fine_colors(top.columns, palette)
+        figures.append(composition.fine_composition_figure(top, rank, colors, info, dataset, left_out, DESCRIPTIVE))
+        figures.append(_composition_pie(top, groups.loc[top.index] if groups is not None else None, colors,
+                                        rank, composition.fine_greys(top, rank, info)))
+        if split_violin and groups is not None:
+            labelled = groups.loc[top.index]
+            labelled = labelled[labelled != NO_LABEL]
+            violin = composition.split_violin_figure(percent.loc[labelled.index], labelled, list(top.columns),
+                                                     group_colors(_ordered(labelled)), DESCRIPTIVE, rank)
+            if violin is not None:
+                figures.append(violin)
+    return figures
 
 
 # --- the numbers ------------------------------------------------------------------------
@@ -199,8 +248,10 @@ def _composition_figures(counts: pd.DataFrame, groups: pd.Series | None, dataset
     return figures
 
 
-def _composition_pie(percent: pd.DataFrame, groups: pd.Series | None, colors: dict[str, str]) -> Figure:
-    rank = "phylum"
+def _composition_pie(percent: pd.DataFrame, groups: pd.Series | None, colors: dict[str, str],
+                     rank: str = "phylum", greys: str = "") -> Figure:
+    """The average composition; at a finer rank ``greys`` is the bars' account of the coloured taxa and the
+    two greys (``composition.fine_greys``)."""
     if groups is None:
         data = pd.DataFrame({rank: percent.columns, "percent": percent.mean().round(4).to_numpy()})
         title, over = f"Average composition ({rank})", "all samples"
@@ -210,11 +261,16 @@ def _composition_pie(percent: pd.DataFrame, groups: pd.Series | None, colors: di
                 .rename_axis(["group", rank]).reset_index())
         title, over = f"Average composition per group ({rank})", "the samples of each group"
     rest = f", with the rest summed as {OTHER}" if OTHER in percent.columns else ""
+    if rank != "phylum":
+        rest = f". {greys}"
     return Figure(
-        name="composition_pie",
+        name="composition_pie" + ("" if rank == "phylum" else f"_{rank}"),
         title=title,
+        level=rank,
         caption=f"The average share of each {rank} over {over} (each sample counts equally)"
-                f"{rest}. Relative abundance from the uploaded table; the colours match the bars. {DESCRIPTIVE}",
+                f"{rest}{'' if rank == 'phylum' else ' '}"
+                f"{'Relative' if rank != 'phylum' else '. Relative'} abundance from the uploaded table; the colours "
+                f"match the bars. {DESCRIPTIVE}",
         data=data, kind="pie", x=rank, y="percent", x_label="", y_label="",
         group_by="group" if groups is not None else None, colors=tuple(colors.items()),
         hover="%{label}: %{value:.1f}%<extra>%{fullData.name}</extra>",

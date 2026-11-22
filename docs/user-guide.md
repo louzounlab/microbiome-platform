@@ -50,7 +50,7 @@ species for only some taxa, "species" groups the rest at their deepest named ran
 - **miMic below species** runs its test and shows its results, but not its cladogram and its
   real-vs-shuffled figure: the authors' plotting code needs species level.
 - The data overview (composition, diversity, sparsity) does not change with the level: it describes
-  your uploaded table.
+  your uploaded table. To see composition at a finer level, use "Show composition at" in the overview.
 - A table that is already preprocessed (used as it is) is not grouped again, so it has no level.
 
 ## Which files each task needs
@@ -184,6 +184,16 @@ Templates of all three are on the website (in every error message, and under
     out, and each sample adds up to 100%. Your file's name is the heading of
     the image (PNG at 300 dpi, and SVG).
   - **Average composition:** a pie, one per group. The colours match the bars.
+  - **Composition at a finer level:** above the composition figures, "Show composition at" switches
+    the bars and the pie between phylum (the default) and each finer level your table names (class,
+    order, family, genus, species). Every level is drawn with the run, so switching re-runs nothing,
+    and it does not change the analysis level (see "Taxonomy level"). Below phylum, the 12 most
+    abundant taxa get a colour and the rest are in two greys, so each bar is still 100% of the sample:
+    **Other (named, rare)** (grey) sums the other named taxa, and **Not named at <level>** (light grey)
+    is the abundance your table does not name down to that level (including "unclassified" or
+    "uncultured"). At genus and species the greys can be large: many rare taxa, and taxa named only to
+    a coarser level. The caption says how much the 12 cover and how large each grey is. Names are kept
+    as your table writes them (GTDB suffixes included); where two taxa share a name, the family is added.
   - **Alpha diversity:** Shannon index and richness, as a box per group with
     every sample shown. With groups: the test is chosen by normality
     (Shapiro-Wilk in each group: t-test or ANOVA if every group looks normal,
