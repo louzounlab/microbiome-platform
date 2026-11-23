@@ -9,10 +9,12 @@ import pytest
 
 from microplatform.reports.composition import (
     KNOWN_PHYLA,
+    NOT_NAMED_GREY,
     OTHER_GREY,
     PALETTES,
     TOP_PHYLA,
     CompositionError,
+    composition_figure,
     gtdb_base,
     merged_note,
     phylum_colors,
@@ -30,23 +32,51 @@ def _relative(columns: dict[str, list[float]]) -> pd.DataFrame:
 
 # --- (a) tables with taxonomy strings -------------------------------------------------------------
 
-def test_lineages_are_collapsed_to_phylum_and_renormalized():
+def test_lineages_are_collapsed_to_phylum_in_percent_of_the_whole_total():
     table = _relative({
         "k__Bacteria;p__Firmicutes;c__Bacilli;o__;f__;g__;s__": [30, 10],
         "k__Bacteria; p__Firmicutes ;c__Clostridia;o__;f__;g__;s__": [30, 10],  # spaces around ';' are cleaned
         "k__Bacteria;p__Bacteroidetes;c__;o__;f__;g__;s__": [20, 70],
-        "k__Bacteria;p__;c__;o__;f__;g__;s__": [20, 10],  # no phylum: left out, then re-normalized
+        "k__Bacteria;p__;c__;o__;f__;g__;s__": [20, 10],  # no phylum: its own segment, as at the finer ranks
     })
     percent, removed = phylum_percent(table)
-    assert list(percent.columns) == ["Firmicutes", "Bacteroidetes"]
-    assert percent.loc["s0"].tolist() == pytest.approx([75, 25]) and percent.loc["s1"].tolist() == pytest.approx([22.222222, 77.777778])
-    assert removed["unassigned_percent"] == pytest.approx(15)  # (20% + 10%) / 2
+    assert list(percent.columns) == ["Firmicutes", "Bacteroidetes", "Not named at phylum"]
+    assert percent.loc["s0"].tolist() == pytest.approx([60, 20, 20]) and percent.loc["s1"].tolist() == pytest.approx([20, 70, 10])
+    assert np.allclose(percent.sum(axis=1), 100)
+    assert removed["unassigned_percent"] == pytest.approx(15) == removed["not_named_percent"]  # (20% + 10%) / 2
 
 
-@pytest.mark.parametrize("dropped", ["Bacteria", "Archaea", "Unassigned", "Unclassified", "k__Bacteria", "unassigned"])
-def test_columns_without_a_phylum_are_dropped(dropped):
+@pytest.mark.parametrize("dropped", ["Bacteria", "Archaea", "Unassigned", "Unclassified", "k__Bacteria", "unassigned",
+                                     "k__Bacteria;p__uncultured", "k__Bacteria;p__unknown"])
+def test_columns_without_a_phylum_are_not_named_at_phylum(dropped):
     percent, _ = phylum_percent(_relative({"p__Firmicutes": [50, 20], dropped: [50, 80]}))
-    assert list(percent.columns) == ["Firmicutes"] and percent["Firmicutes"].tolist() == [100, 100]
+    assert list(percent.columns) == ["Firmicutes", "Not named at phylum"]
+    assert percent["Firmicutes"].tolist() == [50, 20] and percent["Not named at phylum"].tolist() == [50, 80]
+
+
+def test_a_table_that_names_every_phylum_has_no_grey_segment_and_keeps_its_shares():
+    percent, removed = phylum_percent(_relative({"p__Firmicutes": [1, 3], "p__Bacteroidetes": [3, 1]}))
+    assert list(percent.columns) == ["Firmicutes", "Bacteroidetes"] and removed["not_named_percent"] == 0
+    assert percent["Firmicutes"].tolist() == [25, 75]
+
+
+def test_not_named_at_phylum_comes_last_in_light_grey_and_is_never_other():
+    cols = {f"p__P{i:02d}": [i + 1, i + 1] for i in range(14)} | {"k__Bacteria;p__": [200, 200]}
+    percent, _ = phylum_percent(_relative(cols))
+    top = top_phyla(percent)
+    assert list(top.columns[-2:]) == [OTHER, "Not named at phylum"]  # the big grey is not ranked as a phylum
+    assert top[OTHER].tolist() == pytest.approx(percent[["P00", "P01"]].sum(axis=1).tolist())  # nor summed in Other
+    assert np.allclose(top.sum(axis=1), 100)
+    colors = phylum_colors(top.columns)
+    assert colors["Not named at phylum"] == NOT_NAMED_GREY and colors[OTHER] == OTHER_GREY
+
+
+def test_the_bars_caption_names_the_light_grey_and_leaves_nothing_out():
+    percent, _ = phylum_percent(_relative({"p__Firmicutes": [90, 80], "k__Bacteria;p__": [10, 20]}))
+    top = top_phyla(percent)
+    caption = composition_figure(top, phylum_colors(top.columns)).caption
+    assert "the sample's whole total" in caption and "left out" not in caption
+    assert "Not named at phylum (light grey)" in caption and "on average 15.0% of a sample" in caption
 
 
 def test_phylum_level_tables_with_or_without_prefixes():
@@ -129,9 +159,10 @@ def test_values_must_be_finite_and_not_negative(bad):
         phylum_percent(_relative({"p__Firmicutes": [5, bad], "p__Bacteroidetes": [5, 5]}))
 
 
-def test_samples_with_nothing_at_phylum_level_are_dropped():
-    percent, removed = phylum_percent(_relative({"p__Firmicutes": [5, 0, 1], "Unassigned": [5, 9, 0]}))
-    assert list(percent.index) == ["s0", "s2"] and removed["samples_dropped"] == 1
+def test_samples_with_no_abundance_are_dropped_and_unnamed_ones_kept():
+    percent, removed = phylum_percent(_relative({"p__Firmicutes": [5, 0, 1, 0], "Unassigned": [5, 9, 0, 0]}))
+    assert list(percent.index) == ["s0", "s1", "s2"] and removed["samples_dropped"] == 1
+    assert percent.loc["s1", "Not named at phylum"] == 100  # reads, but none with a phylum: one grey bar
     with pytest.raises(CompositionError):
         phylum_percent(_relative({"Unassigned": [1, 2]}))
 
@@ -209,34 +240,37 @@ def _legend_names(svg: str, names: set[str]) -> list[str]:
     return [t.strip() for t in texts if t.strip() in names]
 
 
-def test_every_per_phylum_plot_uses_the_one_global_map_and_other_is_grey_and_last(many_phyla):
+def test_every_per_phylum_plot_uses_the_one_global_map_and_the_greys_are_last(many_phyla):
     from microplatform.reports.figures import to_plotly
 
     counts, figs, out = many_phyla
     percent, _ = phylum_percent(counts)
     assert percent.shape[1] > TOP_PHYLA  # the point of this dataset
     top = top_phyla(percent)
+    gap = "Not named at phylum"  # this table has abundance with no phylum: the light grey, after "Other"
+    greys = [OTHER, gap]
     expected = phylum_colors(top.columns)  # the global map, lab palette
-    assert list(expected)[-1] == OTHER and expected[OTHER] == OTHER_GREY
+    assert list(expected)[-2:] == greys and expected[OTHER] == OTHER_GREY and expected[gap] == NOT_NAMED_GREY
     for name in ("composition_bars", "composition_pie"):
         fig = figs[name]
-        assert dict(fig.colors) == expected and list(dict(fig.colors))[-1] == OTHER, name
-        # The data: "Other" is the last segment of every bar and the last slice of every pie.
+        assert dict(fig.colors) == expected and list(dict(fig.colors))[-2:] == greys, name
+        # The data: the light grey is the last segment of every bar and the last slice of every pie, "Other" just before.
         by = "sample" if name == "composition_bars" else "group"
-        assert set(fig.data.groupby(by, sort=False)["phylum"].last()) == {OTHER}, name
-        # The drawing (SVG, same as the PNG): "Other" is the legend's last entry.
+        assert set(fig.data.groupby(by, sort=False)["phylum"].last()) == {gap}, name
+        assert set(fig.data.groupby(by, sort=False)["phylum"].nth(-2)) == {OTHER}, name
+        # The drawing (SVG, same as the PNG): the greys are the legend's last entries.
         svg = (out / f"{name}.svg").read_text(encoding="utf-8")
-        assert _legend_names(svg, set(expected))[-1] == OTHER, name
-        assert OTHER_GREY.lower() in svg.lower(), name
+        assert _legend_names(svg, set(expected))[-2:] == greys, name
+        assert OTHER_GREY.lower() in svg.lower() and NOT_NAMED_GREY.lower() in svg.lower(), name
     bars = to_plotly(figs["composition_bars"])
-    assert [t.name for t in bars.data][-2:] == [OTHER, OTHER]  # drawn last in both panels
+    assert [t.name for t in bars.data][-4:] == [OTHER, OTHER, gap, gap] or         [t.name for t in bars.data][-4:] == [OTHER, gap, OTHER, gap]  # drawn last in both panels
     assert {t.name: t.marker.color for t in bars.data} == expected
     for pie in to_plotly(figs["composition_pie"]).data:
-        assert list(pie.labels)[-1] == OTHER and list(pie.marker.colors)[-1] == OTHER_GREY
+        assert list(pie.labels)[-2:] == greys and list(pie.marker.colors)[-2:] == [OTHER_GREY, NOT_NAMED_GREY]
         assert dict(zip(pie.labels, pie.marker.colors)) == {p: expected[p] for p in pie.labels}
     # The split violins compare groups (coloured by group); they show the named phyla only, in the same order.
     violin = figs["composition_violin"]
-    assert list(dict.fromkeys(violin.data["phylum"])) == [p for p in expected if p != OTHER]
+    assert list(dict.fromkeys(violin.data["phylum"])) == [p for p in expected if p not in greys]
 
 
 def test_a_figure_without_explicit_colours_still_gets_the_global_map():

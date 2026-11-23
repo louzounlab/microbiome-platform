@@ -332,12 +332,9 @@ def _composition_figures(counts: pd.DataFrame, groups: pd.Series | None, dataset
     top = composition.top_phyla(percent, top_n)
     colors = composition.phylum_colors(top.columns, palette)
     gone = removed["samples_dropped"]
-    notes = left_out
-    if removed["unassigned_percent"] >= 0.05:
-        notes += (f" Abundance with no phylum (on average {removed['unassigned_percent']:.1f}% of a sample) is "
-                  "left out before the shares are computed.")
+    notes = left_out  # abundance with no phylum is a segment of its own ("Not named at phylum"), not left out
     if gone:
-        notes += f" {gone:,} sample{'s' if gone != 1 else ''} with nothing at phylum level {'are' if gone != 1 else 'is'} left out."
+        notes += f" {gone:,} sample{'s' if gone != 1 else ''} with no abundance {'are' if gone != 1 else 'is'} left out."
     merged = composition.merged_note(removed["merged"])  # GTDB variants shown as their base phylum
     pie = _composition_pie(top, groups.loc[top.index] if groups is not None else None, colors)
     figures = [composition.composition_figure(top, colors, dataset, notes + merged, DESCRIPTIVE),
@@ -366,6 +363,8 @@ def _composition_pie(percent: pd.DataFrame, groups: pd.Series | None, colors: di
                 .rename_axis(["group", rank]).reset_index())
         title, over = f"Average composition per group ({rank})", "the samples of each group"
     rest = f", with the rest summed as {OTHER}" if OTHER in percent.columns else ""
+    if rank == "phylum" and composition.not_named("phylum") in percent.columns:
+        rest += f", and {composition.not_named('phylum')} in light grey (abundance with no phylum)"
     if rank != "phylum":
         rest = f". {greys}"
     return Figure(

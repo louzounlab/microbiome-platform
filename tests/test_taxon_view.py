@@ -4,6 +4,7 @@ import io
 import re
 import zipfile
 
+import numpy as np
 import pandas as pd
 import pytest
 
@@ -54,7 +55,22 @@ def test_the_share_is_of_the_sample_whole_total_and_a_lineage_is_summed():
 def test_at_phylum_variants_and_old_and_new_names_are_one_phylum():
     table = _table({"k__Bacteria;p__Firmicutes": [1, 1], "k__Bacteria;p__Bacillota_A_368345": [1, 1],
                     "k__Bacteria;p__Bacteroidota": [2, 2]})
-    assert set(taxon_choices(table, "phylum").index) == {"Bacillota", "Bacteroidota"}
+    assert set(taxon_choices(table, "phylum").index) == {"Firmicutes", "Bacteroidota"}  # a tie: the bars' choice
+
+
+@pytest.mark.parametrize("more, less", [("Patescibacteria", "TM7"), ("TM7", "Patescibacteria"),
+                                        ("Firmicutes", "Bacillota"), ("Bacillota", "Firmicutes")])
+def test_at_phylum_a_phylum_has_the_bars_name_and_the_bars_share(more, less):
+    table = _table({f"k__Bacteria;p__{more}": [6, 4], f"k__Bacteria;p__{less}": [1, 1],
+                    "k__Bacteria;p__Bacteroidota": [2, 4], "k__Bacteria;p__;c__": [1, 1],  # no phylum
+                    "k__Bacteria;p__uncultured": [0, 2]})
+    bars, _ = composition.phylum_percent(table)
+    choices = taxon_choices(table, "phylum")
+    assert list(choices.index) == [more, "Bacteroidota"]  # the name the table uses more, as on the bars
+    for taxon in choices.index:
+        one = composition.taxon_abundance(table, "phylum", taxon)
+        assert np.allclose(one["percent"], bars.loc[one.index, taxon])  # % of the whole total, as on the bars
+    assert one["percent"].tolist() == pytest.approx([20, 33.333333])
 
 
 @pytest.fixture(scope="module")
@@ -113,7 +129,7 @@ def test_the_control_offers_the_levels_and_the_named_taxa(site):
     form = html[html.index('class="taxon-pick"'):html.index("</form>", html.index('class="taxon-pick"'))]
     assert re.findall(r'<option value="([a-z]+)"', form)[:6] == list(composition.TAXON_RANKS)
     assert 'value="phylum" selected' in form  # the composition rank shown
-    assert "Bacillota" in form and not_named("phylum") not in form
+    assert "Firmicutes" in form and not_named("phylum") not in form  # the example's own name, as on its bars
     # Nothing drawn until a taxon is asked for, and the overview's figures are all still there.
     assert not run.taxa_dir.exists() or not any(p.is_dir() for p in run.taxa_dir.iterdir())
     assert [n for n in _figure_ids(html) if not n.startswith("taxon_")] == list(overview.FIGURE_NAMES)

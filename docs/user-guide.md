@@ -180,9 +180,11 @@ Templates of all three are on the website (in every error message, and under
   - **Composition of each sample** (in the lab's figure style): on the left a
     stacked bar per sample, by phylum, sorted by Firmicutes; on the right one
     bar with the mean of all samples. The 12 phyla with the highest mean get a
-    colour; the rest are "Other", in grey. Abundance with no phylum is left
-    out, and each sample adds up to 100%. Your file's name is the heading of
-    the image (PNG at 300 dpi, and SVG).
+    colour; the rest are "Other", in grey. Each bar is the sample's whole
+    total (100%): abundance your table does not name to a phylum is its own
+    light-grey segment, **Not named at phylum**, as at the finer levels (only
+    if your table has any). Your file's name is the heading of the image (PNG
+    at 300 dpi, and SVG).
   - **Average composition:** a pie, one per group. The colours match the bars.
   - **Composition at a finer level:** above the composition figures, "Show composition at" switches
     the bars and the pie between phylum (the default) and each finer level your table names (class,

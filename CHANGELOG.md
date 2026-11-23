@@ -38,6 +38,14 @@ All notable changes to `microplatform`. The format follows
 - LOCATE's summary no longer calls a correlation above 0 "better than chance" (no test was made).
 
 ### Changed
+- Phylum composition (bars, pie and the comparison violins) is now in % of each sample's whole total, as at the
+  finer levels: abundance with no phylum (and a phylum written as unassigned, uncultured, unknown, …) is the
+  light-grey segment "Not named at phylum", no longer left out with the rest scaled up to 100%. A table that
+  names a phylum everywhere draws exactly as before. `phylum_percent` adds the column "Not named at phylum"
+  (only if some sample has any), keeps samples that have reads but no phylum, and reports `not_named_percent`
+  (= `unassigned_percent`); `top_phyla` puts it last, after "Other".
+- Look at one taxon, at phylum: the list uses the phylum figures' own phyla, names and shares (an old and a
+  new name of one phylum appear as the name the table uses more, e.g. Patescibacteria, not TM7).
 - Every figure caption says what the figure shows, how to read it, and what kind of result it is
   (a tool's statistical test, exploratory tests, model performance, or descriptive). The fine print
   (method, settings, provenance) moved to a new `Figure.details` / `RenderedFigure.details`, shown

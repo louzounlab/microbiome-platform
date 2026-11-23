@@ -6,9 +6,10 @@ table the tools use):
 1. **Phylum table** (``phylum_percent``): each column's phylum is read from its lineage
    (``k__Bacteria;p__Firmicutes;…``; ``;``, ``|`` and ``,`` all separate ranks). A table that
    lists every rank (MetaPhlAn: ``k__…``, ``k__…|p__…``, ``k__…|p__…|c__…``) uses only its
-   phylum rows, so nothing is counted twice. Columns with no phylum (``Bacteria``, ``Archaea``,
-   ``Unassigned``, ``Unclassified``) are dropped, phyla are summed, samples that are left
-   with nothing are dropped, and every sample is re-normalized to 100%. Values must be finite
+   phylum rows, so nothing is counted twice. Phyla are summed, in % of each sample's whole total;
+   columns with no phylum (``Bacteria``, ``Archaea``, ``Unassigned``, ``Unclassified``, and the names
+   ``NO_NAME`` lists) are the segment "Not named at phylum", as at the finer ranks, so every bar adds
+   up to 100%. Samples with a total of zero are left out. Values must be finite
    and not negative. For display, one phylum gets one bar (unless ``merge_gtdb_variants=False``;
    ``MERGE_GTDB_VARIANTS``): GTDB variants (``Bacillota_A_368345``, ``Bacillota_C``) are merged into their
    base phylum (``Bacillota``), and an old and a new name of the same phylum (``KNOWN_PHYLA``: Firmicutes
@@ -99,13 +100,33 @@ def gtdb_base(phylum: str) -> str:
 
 def phylum_percent(table: pd.DataFrame,
                    merge_gtdb_variants: bool = MERGE_GTDB_VARIANTS) -> tuple[pd.DataFrame, dict]:
-    """Samples × phyla in % (each row adds up to 100), and what was left out.
+    """Samples × phyla in % of each sample's whole total, as at the finer ranks: abundance with no phylum is
+    the column "Not named at phylum" (only if some sample has any), so every row adds up to 100.
 
     ``table`` is samples × taxa, columns named by lineage, values counts or relative abundances.
-    The second value says how many samples had nothing at phylum level (dropped) and the mean
-    share of each sample's total that had no phylum (``unassigned_percent``), and which GTDB variants were
-    merged (``merged``: variant -> base phylum; empty if none).
+    The second value says how many samples had a total of zero (left out), the mean share of a sample with
+    no phylum (``unassigned_percent``, = ``not_named_percent``), and which GTDB variants and old/new names
+    were merged (``merged``; empty if none).
     """
+    phylum, totals, merged = _phylum_sums(table, merge_gtdb_variants)
+    valid = totals > 0
+    if not (phylum.loc[valid] > 0).to_numpy().any():
+        raise CompositionError("No sample has any abundance at phylum level.",
+                               "Check that the column names hold the taxonomy (k__…;p__…).")
+    percent = phylum.loc[valid].div(totals[valid], axis=0) * 100
+    gap = (100 - percent.sum(axis=1)).clip(lower=0)
+    gap = gap.where(gap > NOISE, 0.0)  # rounding left over is not abundance
+    if (gap > 0).any():
+        percent[not_named("phylum")] = gap
+    share = float(gap.mean())
+    return percent, {"samples_dropped": int((~valid).sum()), "unassigned_percent": share,
+                     "not_named_percent": share, "merged": merged}
+
+
+def _phylum_sums(table: pd.DataFrame, merge_gtdb_variants: bool) -> tuple[pd.DataFrame, pd.Series, dict]:
+    """Samples × phyla in the table's own values (a phylum-rank ``…_unclassified`` summed as "Other"), each
+    sample's whole total, and the merges (``phylum_percent``). The phylum figures and the one-taxon view
+    both use it, so a phylum has the same name and the same share in both."""
     values = table.apply(pd.to_numeric, errors="coerce")
     array = values.to_numpy(dtype=float)
     if not (pd.notna(array).all() and abs(array).max(initial=0) < float("inf")) or (array < 0).any():
@@ -137,20 +158,12 @@ def phylum_percent(table: pd.DataFrame,
         if synonyms:
             phylum = phylum.T.groupby([synonyms.get(c, c) for c in phylum.columns], sort=False).sum().T
     totals = values.sum(axis=1) if not _all_ranks(ranks) else phylum.sum(axis=1)
-    phylum = phylum.drop(columns=[c for c in phylum.columns if str(c).lower() in {d.lower() for d in DROPPED}])
+    no_phylum = {d.lower() for d in DROPPED} | NO_NAME  # "Not named at phylum", as at the finer ranks
+    phylum = phylum.drop(columns=[c for c in phylum.columns if str(c).strip().lower() in no_phylum])
     unclassified = [c for c in phylum.columns if str(c).lower().endswith("_unclassified")]
-    if unclassified:  # abundance known to be bacterial but with no phylum: shown in "Other", not left out
+    if unclassified:  # abundance known to be bacterial but with no phylum: shown in "Other"
         phylum = phylum.T.groupby([OTHER if c in unclassified else c for c in phylum.columns], sort=False).sum().T
-    assigned = phylum.sum(axis=1)
-    valid = assigned > 0
-    unassigned = (1 - assigned[valid] / totals[valid]).clip(lower=0).mean() * 100 if valid.any() else 0.0
-    phylum = phylum.loc[valid]
-    if phylum.empty:
-        raise CompositionError("No sample has any abundance at phylum level.",
-                               "Check that the column names hold the taxonomy (k__…;p__…).")
-    percent = phylum.div(phylum.sum(axis=1), axis=0) * 100
-    return percent, {"samples_dropped": int((~valid).sum()), "unassigned_percent": float(unassigned),
-                     "merged": {"variants": variants, "synonyms": synonyms}}
+    return phylum, totals, {"variants": variants, "synonyms": synonyms}
 
 
 def merged_note(merged: dict[str, dict[str, str]]) -> str:
@@ -167,13 +180,18 @@ def merged_note(merged: dict[str, dict[str, str]]) -> str:
 
 
 def top_phyla(percent: pd.DataFrame, top_n: int = TOP_PHYLA) -> pd.DataFrame:
-    """The ``top_n`` phyla by mean over all samples (most abundant first), then "Other" (the rest)."""
-    order = list(percent.mean().sort_values(ascending=False, kind="stable").index)
+    """The ``top_n`` phyla by mean over all samples (most abundant first), then "Other" (the rest), then
+    "Not named at phylum" (if the table has any)."""
+    gap = not_named("phylum")
+    order = list(percent.drop(columns=[gap], errors="ignore").mean()
+                 .sort_values(ascending=False, kind="stable").index)
     named = [p for p in order if p != OTHER][:top_n]
     out = percent[named].copy()
-    rest = [p for p in percent.columns if p not in named]
+    rest = [p for p in percent.columns if p not in named and p != gap]
     if rest:
         out[OTHER] = percent[rest].sum(axis=1)
+    if gap in percent and (percent[gap] > 0).any():
+        out[gap] = percent[gap]
     return out
 
 
@@ -186,7 +204,8 @@ def phylum_colors(phyla, palette: str = PALETTE_DEFAULT) -> dict[str, str]:
     if palette not in PALETTES:
         raise ValueError(f"palette must be one of {sorted(PALETTES)}")
     colors = PALETTES[palette]
-    named = [p for p in dict.fromkeys(phyla) if p != OTHER]
+    named = [p for p in dict.fromkeys(phyla) if p != OTHER and not _is_not_named(p)]
+    unnamed = {p: NOT_NAMED_GREY for p in dict.fromkeys(phyla) if _is_not_named(p)}
     slots: dict[str, int] = {}
     for p in named:
         slot = _SLOT.get(str(p).lower())
@@ -198,7 +217,7 @@ def phylum_colors(phyla, palette: str = PALETTE_DEFAULT) -> dict[str, str]:
     for p in named:
         if p not in slots:
             slots[p] = free.pop(0) if free else len(slots) % len(colors)
-    return {p: colors[slots[p]] for p in named} | {OTHER: OTHER_GREY}
+    return {p: colors[slots[p]] for p in named} | {OTHER: OTHER_GREY} | unnamed
 
 
 def sort_samples(top: pd.DataFrame) -> pd.DataFrame:
@@ -216,21 +235,33 @@ def composition_figure(top: pd.DataFrame, colors: dict[str, str], dataset: str |
     rows = pd.concat([ordered, mean]).stack(future_stack=True).round(4).rename("percent")
     data = rows.rename_axis(["sample", "phylum"]).reset_index()
     data.insert(0, "panel", ["Average" if s == MEAN else "Samples" for s in data["sample"]])
-    named = len([p for p in top.columns if p != OTHER])
+    named = len([p for p in top.columns if p != OTHER and not _is_not_named(p)])
     rest = f"; the rest are summed as {OTHER} (grey)" if OTHER in top.columns else ""
     return Figure(
         name="composition_bars",
         title="Composition of each sample (phylum)",
-        caption=f"Left: each bar is one sample, split into the share of each phylum (adding up to 100%). "
-                f"Right: the average of all samples. The {named} most abundant phyla have their own colour"
-                f"{rest}. Samples are sorted by {lead} (most first).{left_out} {descriptive}",
-        details="Relative abundance from the uploaded table, summed to phylum (the p__ rank). This is not "
-                "the log-transformed table the tools analyse.",
+        caption=f"Left: each bar is one sample, split into the share of each phylum (adding up to 100%: the "
+                f"sample's whole total). Right: the average of all samples. The {named} most abundant phyla have "
+                f"their own colour{rest}.{phylum_unnamed(top)} Samples are sorted by {lead} (most first)."
+                f"{left_out} {descriptive}",
+        details="Relative abundance from the uploaded table, summed to phylum (the p__ rank): each sample's "
+                "whole total is 100%. Abundance with no phylum, or a phylum written as unassigned or uncultured, "
+                f"is shown as {not_named('phylum')}. This is not the log-transformed table the tools analyse.",
         data=data, kind="composition", x="sample", y="percent", color_by="phylum",
         x_label="Samples", y_label="Relative abundance (%)", summary=(MEAN,),
         colors=tuple(colors.items()), suptitle=dataset,
         hover="%{x}<br>%{fullData.name}: %{y:.1f}%<extra></extra>", section="overview", level="phylum",
     )
+
+
+def phylum_unnamed(top: pd.DataFrame) -> str:
+    """The captions' sentence on "Not named at phylum" ('' if the table names a phylum everywhere)."""
+    gap = not_named("phylum")
+    if gap not in top:
+        return ""
+    share = float(top[gap].mean())
+    return (f" {gap} (light grey) is the abundance your table does not name to phylum, on average "
+            f"{'under 0.1' if share < 0.05 else f'{share:.1f}'}% of a sample; it is part of each sample's total.")
 
 
 def split_violin_figure(percent: pd.DataFrame, groups: pd.Series, phyla: list[str],
@@ -262,9 +293,9 @@ def split_violin_figure(percent: pd.DataFrame, groups: pd.Series, phyla: list[st
 
 # --- finer levels: class to species ------------------------------------------------------------
 # The same figures at a finer rank, from the same uploaded table. The phylum figures above are
-# unchanged; these differ in three ways, all so that a bar stays an honest 100% of its sample:
-# - Abundance the table does not name at the rank is kept, as its own segment "Not named at <rank>"
-#   (at phylum it is small and left out; at species it can be a third of a sample or more).
+# unchanged; like them, abundance the table does not name at the rank is kept, as its own segment
+# "Not named at <rank>" (small at phylum; at species it can be a third of a sample or more), so a bar stays an
+# honest 100% of its sample. They differ in two ways:
 # - The rest of the named taxa are summed as "Other (named, rare)": a second, darker grey.
 # - Names are kept as the table writes them (GTDB suffixes included: at these ranks they can be
 #   different taxa); taxa are counted by their whole lineage down to the rank, and where two share a
@@ -381,7 +412,7 @@ def taxon_choices(table: pd.DataFrame, rank: str) -> pd.Series:
     …) is not a taxon, so it is not offered."""
     if rank not in TAXON_RANKS:
         raise ValueError(f"rank must be one of {TAXON_RANKS}")
-    sums, totals = _rank_sums(table, rank)
+    sums, totals = _taxon_sums(table, rank)
     valid = totals > 0
     percent = sums.loc[valid].div(totals[valid], axis=0) * 100
     mean = percent.mean()
@@ -395,12 +426,21 @@ def taxon_abundance(table: pd.DataFrame, rank: str, taxon: str) -> pd.DataFrame 
     table has no such taxon."""
     if rank not in TAXON_RANKS:
         raise ValueError(f"rank must be one of {TAXON_RANKS}")
-    sums, totals = _rank_sums(table, rank)
+    sums, totals = _taxon_sums(table, rank)
     if taxon not in sums.columns:
         return None
     valid = totals > 0
     value = sums.loc[valid, taxon]
     return pd.DataFrame({"percent": value / totals[valid] * 100, "value": value})
+
+
+def _taxon_sums(table: pd.DataFrame, rank: str) -> tuple[pd.DataFrame, pd.Series]:
+    """The named taxa of ``rank`` and the whole totals; at phylum, exactly the phylum figures' phyla (their
+    names and merges; "Other", the phylum-rank unclassified, is not a taxon)."""
+    if rank != "phylum":
+        return _rank_sums(table, rank)
+    phylum, totals, _ = _phylum_sums(table, MERGE_GTDB_VARIANTS)
+    return phylum.drop(columns=[OTHER], errors="ignore"), totals
 
 
 def _labels(lineages: list[tuple[str, ...]], rank: str) -> list[str]:
