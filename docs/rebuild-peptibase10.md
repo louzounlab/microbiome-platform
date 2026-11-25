@@ -84,6 +84,14 @@ cd ~/microbiome-platform && ~/.local/bin/uv sync --locked --extra server
 `--locked` installs exactly the tested versions in `uv.lock` (CPU-only PyTorch). If it refuses
 because the lock is out of date, stop: something was changed without updating the lock.
 
+> **On the servers, always `uv sync --locked --extra server`, never a plain `uv sync`.** The
+> website runs on gunicorn, which only the `server` extra installs; a plain `uv sync` makes the
+> environment match the lock *without* extras and removes gunicorn. The running site keeps working
+> (gunicorn is already in memory), so nothing looks wrong, but the next restart or reboot leaves the
+> site down. This happened on peptibase10 (23.11.2026) and was fixed on 25.11. For the same reason,
+> don't use `uv run …` on the servers (it syncs the environment first): run tools with the
+> environment's own Python, `.venv/bin/python -m …`. Check: `ls ~/microbiome-platform/.venv/bin/gunicorn`.
+
 ## 5. Private folders
 
 ```bash
@@ -147,7 +155,7 @@ http://127.0.0.1:8000, click **Try the example**, run it, and download the ZIP.
 across them). After new hardware or an operating-system upgrade, check before offering LOCATE:
 
 ```bash
-cd ~/microbiome-platform && ~/.local/bin/uv run pytest tests/test_reproduction.py -k locate -q
+cd ~/microbiome-platform && .venv/bin/python -m pytest tests/test_reproduction.py -k locate -q
 ```
 
 This trains LOCATE on 40 fixed seeds of a small example and checks the approved rule against the

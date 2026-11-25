@@ -39,6 +39,8 @@ ssh -N -L 8000:127.0.0.1:8000 <שם-המשתמש>@peptibase10.math.biu.ac.il
 | יומנים | `tail -f ~/microplatform-logs/worker.log` |
 | עדכון קוד | מהמחשב הנייד: `git push peptibase10 main`; בשרת: `cd ~/microbiome-platform && git pull && ~/.local/bin/uv sync --locked --extra server` ואז הפעלה מחדש |
 
+**אזהרה — בשרתים תמיד `uv sync --locked --extra server`, אף פעם לא `uv sync` לבד.** האתר רץ על gunicorn, שמגיע רק עם התוספת `server`; `uv sync` לבד מתאים את הסביבה לנעילה *בלי* תוספות ומוחק את gunicorn. האתר שרץ ממשיך לעבוד (gunicorn כבר בזיכרון), כך שלא רואים שום בעיה — אבל בהפעלה מחדש הבאה או באתחול של השרת האתר לא יעלה. זה קרה ב-peptibase10 (23.11) ותוקן ב-25.11. מאותה סיבה לא להשתמש בשרתים ב-`uv run …` (הוא מסנכרן את הסביבה קודם): מריצים עם הפייתון של הסביבה, `.venv/bin/python -m …` (למשל `.venv/bin/python -m pytest`). בדיקה: `ls ~/microbiome-platform/.venv/bin/gunicorn`.
+
 **חשוב — עד שה-IT יאפשר "lingering":** שירותי משתמש נעצרים כשנסגר החיבור האחרון של `parashn` לשרת, ולא עולים מחדש אחרי אתחול. כרגע הם רצים כל עוד יש חיבור פתוח (למשל חלון VS Code).
 
 **התאמות לשרת משותף:** כל ניתוח מוגבל ל-16 ליבות (`OMP_NUM_THREADS` ושות' בקובץ ההגדרות). אפשר לכבות משימה בשרת עם `MICROPLATFORM_DISABLED_GOALS` (למשל `metabolites`) — היא תוצג "Not on this server".
