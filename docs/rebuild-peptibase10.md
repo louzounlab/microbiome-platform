@@ -165,6 +165,22 @@ If it fails, switch LOCATE off until it is re-validated: add `metabolites` to
 
 ---
 
+## Deploying a new version (both servers)
+
+peptibase9 is a mirror of peptibase10, at port 8001 (`ssh -4 -N -L 8001:127.0.0.1:8001 peptibase9`;
+its own `/home`, its own runs). Every deploy goes to both, from the laptop, in Git Bash:
+
+```bash
+bash deploy/deploy-both.sh
+```
+
+It pushes `main` to the GitHub backup and to both servers, then on each server (unless an
+analysis is queued or running there, which it reports and skips): `git pull --ff-only`,
+`uv sync --locked --extra server`, a check that gunicorn is there, a restart of both services and
+a check that the site answers. At the end it checks that both servers run the laptop's commit.
+
+---
+
 ## Before a planned update: what to save
 
 1. Make sure GitHub has every commit and tag on the server (`git ls-remote origin` on the laptop
