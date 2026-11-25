@@ -57,8 +57,11 @@ showing the data) or a **statistical test** (a yes/no question answered with a p
 - **Axes:** x = the samples (no unit), sorted by Firmicutes, most first. y = **relative
   abundance in %**: each bar adds up to 100%. Percentages are used because samples have
   different numbers of reads, so only shares can be compared.
-- **How to read it:** the 12 most abundant phyla have their own colour; the rest are grey
-  "Other". Look for samples that look very different from the average bar.
+- **How to read it:** every phylum found has its own colour (the same at the other levels: every
+  taxon, with no "Other"). Up to 20 taxa the legend names them; with more there is no legend, and
+  hovering in the interactive view names a segment. Look for samples that look very different from
+  the average bar. The page opens at the run's level (species by default); "Show composition at"
+  switches level.
 - **Type:** descriptive. Made from the uploaded table, not the transformed table the tools use.
 
 ### Average composition (phylum), the pie(s)
@@ -100,8 +103,9 @@ showing the data) or a **statistical test** (a yes/no question answered with a p
   subtitle; the details are in "Tests (CSV)".
 
 ### How many taxa each sample contains (row sparsity)
-- **What it shows:** for each sample, how many of the table's taxa appear in it at all. Most
-  taxa are absent from most samples; this shows how many are present.
+- **What it shows:** for each sample, how many taxa appear in it at all, counted at the run's
+  level (species by default): the table's columns are added up by their lineage down to that level,
+  as MIPMLP groups them. Most taxa are absent from most samples; this shows how many are present.
 - **Axes:** x = taxa detected in a sample (a count). y = number of samples (a count), on a
   **log scale** (1, 2, 5, 10, 20, 50, …), so one very tall bar does not hide a tail of a few
   samples. It's a histogram: each bar collects samples with a similar number of taxa.
@@ -110,7 +114,8 @@ showing the data) or a **statistical test** (a yes/no question answered with a p
 - **Type:** descriptive.
 
 ### How widespread each taxon is (column sparsity)
-- **What it shows:** for each taxon, in what share of the samples it appears.
+- **What it shows:** for each taxon (at the run's level, as above), in what share of the samples
+  it appears.
 - **Axes:** x = present in % of samples (0 to 100%). y = number of taxa (a count). It's a
   histogram.
 - **How to read it:** a tall bar near 0% is normal: most taxa are rare. The dashed line is

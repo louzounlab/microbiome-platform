@@ -128,7 +128,11 @@ def test_the_control_offers_the_levels_and_the_named_taxa(site):
     assert 'id="taxon"' in html and "Look at one taxon" in html
     form = html[html.index('class="taxon-pick"'):html.index("</form>", html.index('class="taxon-pick"'))]
     assert re.findall(r'<option value="([a-z]+)"', form)[:6] == list(composition.TAXON_RANKS)
-    assert 'value="phylum" selected' in form  # the composition rank shown
+    assert 'value="species" selected' in form  # the composition rank shown: the run's level (species by default)
+    # With phylum shown (the switch), the list holds the phyla, named as on the bars.
+    html = client.get(f"{url}?composition=phylum").get_data(as_text=True)
+    form = html[html.index('class="taxon-pick"'):html.index("</form>", html.index('class="taxon-pick"'))]
+    assert 'value="phylum" selected' in form
     assert "Firmicutes" in form and not_named("phylum") not in form  # the example's own name, as on its bars
     # Nothing drawn until a taxon is asked for, and the overview's figures are all still there.
     assert not run.taxa_dir.exists() or not any(p.is_dir() for p in run.taxa_dir.iterdir())

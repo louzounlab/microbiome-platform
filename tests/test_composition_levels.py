@@ -84,16 +84,24 @@ def test_a_metaphlan_table_uses_the_rows_of_the_rank_and_counts_nothing_twice():
     assert percent.loc["s0", not_named("genus")] == pytest.approx(10)  # the kingdom's 100 minus the genera
 
 
-def test_top_taxa_keeps_twelve_then_the_two_greys_and_adds_up_to_100():
+def test_top_taxa_keeps_every_taxon_then_the_light_grey_and_adds_up_to_100():
     rng = np.random.default_rng(0)
     table = _table({f"{FAMILY_A};g__G{i}": list(rng.integers(1, 50, 4)) for i in range(20)}
                    | {f"{FAMILY_A};g__": [30, 30, 30, 30]})
     top = top_taxa(rank_percent(table, "genus")[0], "genus")
-    assert list(top.columns[-2:]) == [OTHER_NAMED, not_named("genus")] and len(top.columns) == 14
+    assert top.columns[-1] == not_named("genus") and OTHER_NAMED not in top and len(top.columns) == 21
     assert top.sum(axis=1).round(9).eq(100).all()
     colors = fine_colors(top.columns)
-    assert colors[OTHER_NAMED] == OTHER_GREY and colors[not_named("genus")] == NOT_NAMED_GREY != OTHER_GREY
-    assert len({colors[t] for t in top.columns[:12]}) == 12  # every named taxon its own colour
+    assert colors[not_named("genus")] == NOT_NAMED_GREY
+    assert len({colors[t] for t in top.columns[:20]}) == 20  # every named taxon its own colour
+
+
+def test_only_beyond_max_taxa_are_the_rest_other_named():
+    rng = np.random.default_rng(0)
+    table = _table({f"{FAMILY_A};g__G{i}": list(rng.integers(1, 50, 4)) for i in range(20)})
+    top = top_taxa(rank_percent(table, "genus")[0], "genus", top_n=12)
+    assert top.columns[-1] == OTHER_NAMED and len(top.columns) == 13
+    assert fine_colors(top.columns)[OTHER_NAMED] == OTHER_GREY != NOT_NAMED_GREY
 
 
 def test_composition_levels_draws_each_finer_rank_and_leaves_phylum_unchanged():
@@ -103,8 +111,10 @@ def test_composition_levels_draws_each_finer_rank_and_leaves_phylum_unchanged():
                                       for n in (f"composition_bars_{rank}", f"composition_pie_{rank}")]
     assert all(f.level and f.section == "overview" for f in figs)
     genus = next(f for f in figs if f.name == "composition_bars_genus")
-    assert "12 most abundant genera" in genus.caption and "not missing data" in genus.caption
-    assert f"{OTHER_NAMED} (grey)" in genus.caption and "Not named at genus (light grey)" in genus.caption
+    named = genus.data["genus"].nunique() - 1  # less the light grey
+    assert f"Each of the {named} genera found has its own colour" in genus.caption
+    assert "not missing data" in genus.caption and "Not named at genus (light grey)" in genus.caption
+    assert OTHER_NAMED not in set(genus.data["genus"]) and not genus.legend and "there is no legend" in genus.caption
     shown = genus.data[genus.data["panel"] == "Samples"].groupby("sample")["percent"].sum()
     assert shown.round(2).eq(100).all()
     pie = next(f for f in figs if f.name == "composition_pie_genus")
@@ -148,12 +158,16 @@ def _overview_names(html: str) -> list[str]:
     return re.findall(r'id="fig-([a-z_]+)"', section[:section.index("</section>")])
 
 
-def test_the_page_offers_the_levels_with_phylum_shown(page):
-    html = page()
+AT_SPECIES = ("composition_bars_species", "composition_pie_species", *FIGURE_NAMES[2:])
+
+
+def test_the_page_offers_the_levels_with_the_runs_level_shown(page):
+    html = page()  # the run's level is species (the default): composition opens there
     switch = html[html.index('class="level-switch"'):html.index("</nav>", html.index('class="level-switch"'))]
-    assert '<strong aria-current="true">Phylum</strong>' in switch
-    assert re.findall(r"composition=([a-z]+)#composition", switch) == list(composition.FINE_RANKS)
-    assert tuple(_overview_names(html)) == FIGURE_NAMES  # as before
+    assert '<strong aria-current="true">Species</strong>' in switch
+    assert re.findall(r"composition=([a-z]+)#composition", switch) == ["phylum", *composition.FINE_RANKS[:-1]]
+    assert tuple(_overview_names(html)) == AT_SPECIES
+    assert tuple(_overview_names(page("?composition=phylum"))) == FIGURE_NAMES  # phylum on request
 
 
 def test_choosing_genus_swaps_only_the_composition_figures(page):
@@ -163,5 +177,5 @@ def test_choosing_genus_swaps_only_the_composition_figures(page):
 
 
 @pytest.mark.parametrize("asked", ["kingdom", "strain", "", "PHYLUM"])
-def test_a_level_that_was_not_drawn_shows_phylum(page, asked):
-    assert tuple(_overview_names(page(f"?composition={asked}"))) == FIGURE_NAMES
+def test_a_level_that_was_not_drawn_shows_the_runs_level(page, asked):
+    assert tuple(_overview_names(page(f"?composition={asked}"))) == AT_SPECIES

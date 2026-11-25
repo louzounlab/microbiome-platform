@@ -32,6 +32,7 @@ import pandas as pd
 import plotly
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
+from matplotlib.collections import PolyCollection
 from matplotlib.figure import Figure as MplFigure
 from matplotlib.lines import Line2D
 from matplotlib.patches import Patch, Rectangle
@@ -154,6 +155,7 @@ class Figure:
     details: str = ""
     level: str = ""  # composition figures: the rank they show (the page shows one rank at a time)
     hover_data: tuple[str, ...] = ()  # bar, box: columns passed to the hover as %{customdata[0]}, …
+    legend: bool = True  # composition, pie: False when there are too many taxa to list (hover names them)
 
 
 @dataclass(frozen=True)
@@ -720,12 +722,18 @@ def _write_composition(fig: Figure, out_dir: Path) -> None:
     mpl = MplFigure(figsize=(16, 6))
     ax_samples, ax_mean = mpl.subplots(1, 2, gridspec_kw={"width_ratios": [5, 1]})
     for ax, table in ((ax_samples, samples), (ax_mean, means)):
-        bottom = np.zeros(len(table))
-        for taxon in order:
-            values = table[taxon].fillna(0).to_numpy()
-            ax.bar(range(len(table)), values, bottom=bottom, width=0.9, color=colors[taxon], edgecolor="none",
-                   label=taxon)
-            bottom += values
+        # Every segment as one collection of rectangles (one draw call, also for a thousand taxa); only the
+        # segments there are: with hundreds of taxa most are zero.
+        values = table[order].fillna(0).to_numpy(dtype=float)
+        bottoms = np.cumsum(values, axis=1) - values
+        bar, col = np.nonzero(values > 0)
+        left, right = bar - 0.45, bar + 0.45
+        low, high = bottoms[bar, col], bottoms[bar, col] + values[bar, col]
+        boxes = np.stack([np.column_stack([left, low]), np.column_stack([right, low]),
+                          np.column_stack([right, high]), np.column_stack([left, high])], axis=1)
+        ax.add_collection(PolyCollection(boxes, facecolors=[colors[order[c]] for c in col], edgecolors="none",
+                                         linewidths=0))
+        ax.set_xlim(-0.6, len(table) - 0.4)
         ax.set_ylim(0, 100)
         ax.spines[["top", "right"]].set_visible(False)
     ax_samples.set_ylabel(fig.y_label, fontsize=12)
@@ -736,10 +744,11 @@ def _write_composition(fig: Figure, out_dir: Path) -> None:
     ax_mean.set_title("Average", fontsize=13)
     ax_mean.spines["left"].set_visible(False)
     ax_mean.yaxis.set_visible(False)
-    mpl.legend(handles=[Rectangle((0, 0), 1, 1, color=colors[t], label=t) for t in order], loc="lower center",
-               bbox_to_anchor=(0.5, -0.12), ncol=4, frameon=False, fontsize=9)
+    if fig.legend:
+        mpl.legend(handles=[Rectangle((0, 0), 1, 1, color=colors[t], label=t) for t in order], loc="lower center",
+                   bbox_to_anchor=(0.5, -0.12), ncol=4, frameon=False, fontsize=9)
     mpl.suptitle(fig.suptitle or fig.title, fontsize=16, fontweight="bold")
-    mpl.tight_layout(rect=[0, 0.12, 1, 1])
+    mpl.tight_layout(rect=[0, 0.12 if fig.legend else 0, 1, 1])
     _save(mpl, fig, out_dir, dpi=HIGH_DPI, tight=True)
 
 
@@ -785,7 +794,7 @@ def _write_pies(fig: Figure, mpl: MplFigure, out_dir: Path) -> None:
         # A percentage on each slice big enough to hold it; the CSV has every value.
         _, _, percents = ax.pie(
             rows[fig.y], colors=[colors[t] for t in rows[fig.x]], startangle=90, counterclock=False,
-            wedgeprops={"linewidth": 1, "edgecolor": "white"}, pctdistance=0.72, textprops={"fontsize": 9},
+            wedgeprops={"linewidth": 1 if fig.legend else 0, "edgecolor": "white"}, pctdistance=0.72, textprops={"fontsize": 9},
             autopct=lambda pct: f"{pct:.0f}%" if pct >= 5 else "")
         for text, taxon in zip(percents, rows[fig.x]):
             text.set_color(_ink(colors[taxon]))
@@ -793,8 +802,9 @@ def _write_pies(fig: Figure, mpl: MplFigure, out_dir: Path) -> None:
         if group is not None:
             ax.set_title(str(group))
     mpl.suptitle(fig.title, x=0.02, ha="left", fontweight="bold")
-    mpl.legend(handles=[Patch(color=c, label=t) for t, c in colors.items() if t in set(fig.data[fig.x])],
-               frameon=False, loc="outside right center", title=fig.x.capitalize())
+    if fig.legend:
+        mpl.legend(handles=[Patch(color=c, label=t) for t, c in colors.items() if t in set(fig.data[fig.x])],
+                   frameon=False, loc="outside right center", title=fig.x.capitalize())
     _save(mpl, fig, out_dir)
 
 
@@ -1033,7 +1043,7 @@ def _plotly_pies(fig: Figure) -> go.Figure:
     for i, (group, rows) in enumerate(groups):
         out.add_trace(go.Pie(
             labels=rows[fig.x], values=rows[fig.y], sort=False, direction="clockwise", rotation=0,
-            marker={"colors": [colors[t] for t in rows[fig.x]], "line": {"color": "white", "width": 1}},
+            marker={"colors": [colors[t] for t in rows[fig.x]], "line": {"color": "white", "width": 1 if fig.legend else 0}},
             domain={"x": [i * width + 0.02, (i + 1) * width - 0.02], "y": [0, 0.9]},
             title={"text": str(group) if group is not None else ""}, textposition="inside",
             # A percentage only on slices big enough to hold it (as in the PNG); hover shows every value.
@@ -1042,7 +1052,8 @@ def _plotly_pies(fig: Figure) -> go.Figure:
             hovertemplate=fig.hover, name=str(group or ""),
         ))
     out.update_layout(title={"text": fig.title, "x": 0, "xanchor": "left"}, template="simple_white",
-                      margin={"l": 20, "r": 20, "t": 50, "b": 20}, legend={"title": {"text": fig.x.capitalize()}})
+                      margin={"l": 20, "r": 20, "t": 50, "b": 20}, legend={"title": {"text": fig.x.capitalize()}},
+                      showlegend=fig.legend)
     return out
 
 
@@ -1057,14 +1068,22 @@ def _plotly_composition(fig: Figure) -> go.Figure:
     samples = [b for b in bars if b not in fig.summary]
     out = make_subplots(rows=1, cols=2, column_widths=[5 / 6, 1 / 6], shared_yaxes=True, horizontal_spacing=0.02,
                         subplot_titles=(f"Samples (n={len(samples):,})", "Average"))
+    # Two traces per taxon (samples, average), built as plain data and added at once: with a thousand taxa,
+    # adding them one by one is what takes the time. Zero segments have nothing to draw.
+    present = fig.data[fig.data[fig.y] > 0]
+    by_taxon = dict(tuple(present.groupby(fig.color_by, sort=False)))
+    traces = []
     for taxon, color in colors.items():
-        rows = fig.data[fig.data[fig.color_by] == taxon]
-        if rows.empty:
+        rows = by_taxon.get(taxon)
+        if rows is None:
             continue
-        for col, part in ((1, rows[~rows[fig.x].isin(fig.summary)]), (2, rows[rows[fig.x].isin(fig.summary)])):
-            out.add_trace(go.Bar(x=part[fig.x], y=part[fig.y], name=taxon, legendgroup=taxon, showlegend=col == 1,
-                                 marker={"color": color, "line": {"width": 0}}, hovertemplate=fig.hover),
-                          row=1, col=col)
+        average = rows[fig.x].isin(fig.summary)
+        for col, part in ((1, rows[~average]), (2, rows[average])):
+            traces.append({"type": "bar", "x": part[fig.x].tolist(), "y": part[fig.y].tolist(), "name": taxon,
+                           "legendgroup": taxon, "showlegend": fig.legend and col == 1,
+                           "marker": {"color": color, "line": {"width": 0}}, "hovertemplate": fig.hover,
+                           "xaxis": "x" if col == 1 else "x2", "yaxis": "y" if col == 1 else "y2"})
+    out.add_traces(traces)
     out.update_xaxes(categoryorder="array", categoryarray=samples, showticklabels=False, ticks="", row=1, col=1)
     out.update_xaxes(ticks="", row=1, col=2)
     out.update_yaxes(range=[0, 100], title_text=fig.y_label, row=1, col=1)

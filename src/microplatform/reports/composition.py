@@ -16,11 +16,14 @@ table the tools use):
    and Bacillota, as MetaPhlAn's database mixes them) into the one the table uses more. The analysis
    itself (MIPMLP and the tools) keeps the real names. A phylum-rank ``…_unclassified`` (MetaPhlAn's
    ``p__Bacteria_unclassified``) is not a phylum: it is counted in "Other", so every bar still adds up to 100%.
-2. **Top phyla** (``top_phyla``): the ``TOP_PHYLA`` phyla with the highest mean over all
-   samples, most abundant first; the rest are summed as "Other", drawn last in grey.
+2. **Every phylum** (``top_phyla``): every phylum found gets its own colour, most abundant first (up to
+   ``MAX_TAXA``, far more than a table has; only beyond that would the rest be summed as "Other"). The
+   legend lists them up to ``LEGEND_MAX``; with more, there is no legend (hover names a segment, and the
+   CSV lists every one).
 3. **Colours** (``phylum_colors``): one colour per phylum, the same in every panel, figure and
    dataset. Common gut phyla have a fixed slot (``KNOWN_PHYLA``; old and new names share it),
-   so Firmicutes looks the same in every run; other phyla take the next free colour.
+   so Firmicutes looks the same in every run; other phyla take the next free colour, and past the
+   palette, generated colours (``extra_colors``: distinct hues, never grey).
    ``palette="lab"`` (the default) is the lab's look, tab20 + Set3 + Pastel1;
    ``palette="colorblind"`` is a colour-blind-safer set of 12 hues.
 4. **Figures**: ``composition_figure`` (left: one stacked bar per sample, sorted by Firmicutes
@@ -31,6 +34,7 @@ table the tools use):
 
 from __future__ import annotations
 
+import colorsys
 import re
 
 import pandas as pd
@@ -40,7 +44,11 @@ from matplotlib.colors import to_hex
 from microplatform.core.errors import UserFacingError
 from microplatform.reports.figures import OTHER, Figure
 
-TOP_PHYLA = 12
+TOP_PHYLA = 12  # the split violins: one violin each for this many (more would be unreadable)
+# Composition: every taxon its own colour, up to this many (a browser still draws them: the real shotgun
+# table has 1,268 species); beyond it, the least abundant are summed as "Other (named, rare)".
+MAX_TAXA = 1500
+LEGEND_MAX = 20  # a legend lists the coloured taxa up to this many; with more, none (hover and the CSV name them)
 OTHER_GREY = "#BDBDBD"
 MEAN = "Mean"  # the right panel's one bar
 DROPPED = ("Bacteria", "Archaea", "Unassigned", "Unclassified")  # no phylum: left out (case-insensitive)
@@ -59,8 +67,9 @@ def _not_grey(color: str) -> bool:
 PALETTES = {
     # The lab's look: matplotlib's tab20, then Set3, then Pastel1 (as in the fig_1B scripts), without
     # their greys, which would read as "Other".
-    "lab": tuple(c for name in ("tab20", "Set3", "Pastel1") for c in map(to_hex, colormaps[name].colors)
-                 if _not_grey(c)),
+    # (Set3 and Pastel1 share one colour, #ccebc5: listed once, so two taxa never share it.)
+    "lab": tuple(dict.fromkeys(c for name in ("tab20", "Set3", "Pastel1") for c in map(to_hex, colormaps[name].colors)
+                               if _not_grey(c))),
     # Colour-blind safer, 12 hues: Okabe-Ito (without black) + five of Paul Tol's muted/dark hues.
     # No 12-colour set is safe for everyone; neighbours in a stack differ in lightness too.
     "colorblind": ("#0072B2", "#E69F00", "#009E73", "#CC79A7", "#56B4E9", "#D55E00", "#F0E442",
@@ -83,7 +92,8 @@ _SLOT = {name.lower(): i for i, names in enumerate(KNOWN_PHYLA) for name in name
 _RANKS = re.compile(r"\s*[;|,]\s*")
 _PREFIX = re.compile(r"^[a-z]__")
 
-__all__ = ["phylum_percent", "gtdb_base", "merged_note", "top_phyla", "phylum_colors", "composition_figure",
+__all__ = ["phylum_percent", "gtdb_base", "merged_note", "top_phyla", "phylum_colors", "extra_colors",
+           "composition_figure",
            "split_violin_figure", "rank_percent", "top_taxa", "fine_colors", "fine_composition_figure",
            "taxon_choices", "taxon_abundance"]
 
@@ -179,16 +189,16 @@ def merged_note(merged: dict[str, dict[str, str]]) -> str:
     return f" Merged for display: {' and '.join(kinds)}; the analysis keeps the original names."
 
 
-def top_phyla(percent: pd.DataFrame, top_n: int = TOP_PHYLA) -> pd.DataFrame:
-    """The ``top_n`` phyla by mean over all samples (most abundant first), then "Other" (the rest), then
-    "Not named at phylum" (if the table has any)."""
+def top_phyla(percent: pd.DataFrame, top_n: int = MAX_TAXA) -> pd.DataFrame:
+    """Every phylum found (up to ``top_n``) by mean over all samples, most abundant first, then "Other" (a
+    phylum-rank unclassified, and any phyla beyond ``top_n``), then "Not named at phylum" (if the table has any)."""
     gap = not_named("phylum")
-    order = list(percent.drop(columns=[gap], errors="ignore").mean()
-                 .sort_values(ascending=False, kind="stable").index)
+    means = percent.drop(columns=[gap], errors="ignore").mean()
+    order = list(means[means > 0].sort_values(ascending=False, kind="stable").index)
     named = [p for p in order if p != OTHER][:top_n]
     out = percent[named].copy()
     rest = [p for p in percent.columns if p not in named and p != gap]
-    if rest:
+    if rest and (percent[rest] > 0).to_numpy().any():
         out[OTHER] = percent[rest].sum(axis=1)
     if gap in percent and (percent[gap] > 0).any():
         out[gap] = percent[gap]
@@ -214,10 +224,29 @@ def phylum_colors(phyla, palette: str = PALETTE_DEFAULT) -> dict[str, str]:
     start = len(KNOWN_PHYLA) if len(colors) > len(KNOWN_PHYLA) + len(named) else 0
     free = [i for i in range(start, len(colors)) if i not in slots.values()] + \
            [i for i in range(start) if i not in slots.values()]
+    beyond = len([p for p in named if p not in slots]) - len(free)
+    extra = iter(extra_colors(max(0, beyond)))
+    out: dict[str, str] = {}
     for p in named:
-        if p not in slots:
-            slots[p] = free.pop(0) if free else len(slots) % len(colors)
-    return {p: colors[slots[p]] for p in named} | {OTHER: OTHER_GREY} | unnamed
+        if p in slots:
+            out[p] = colors[slots[p]]
+        elif free:
+            out[p] = colors[free.pop(0)]
+        else:
+            out[p] = next(extra)
+    return out | {OTHER: OTHER_GREY} | unnamed
+
+
+def extra_colors(n: int) -> list[str]:
+    """``n`` colours for taxa past the palette: hues spread by the golden angle, so neighbours differ, in
+    alternating lightness; saturated enough never to read as one of the greys."""
+    out = []
+    for i in range(n):
+        hue = (0.11 + i * 0.381966) % 1.0
+        light = (0.45, 0.62, 0.34, 0.72, 0.53)[i % 5]
+        sat = (0.75, 0.55, 0.9)[(i // 5) % 3]
+        out.append("#%02x%02x%02x" % tuple(round(v * 255) for v in colorsys.hls_to_rgb(hue, light, sat)))
+    return out
 
 
 def sort_samples(top: pd.DataFrame) -> pd.DataFrame:
@@ -236,14 +265,14 @@ def composition_figure(top: pd.DataFrame, colors: dict[str, str], dataset: str |
     data = rows.rename_axis(["sample", "phylum"]).reset_index()
     data.insert(0, "panel", ["Average" if s == MEAN else "Samples" for s in data["sample"]])
     named = len([p for p in top.columns if p != OTHER and not _is_not_named(p)])
-    rest = f"; the rest are summed as {OTHER} (grey)" if OTHER in top.columns else ""
+    rest = f"; {OTHER} (grey) is abundance named only as an unclassified phylum" if OTHER in top.columns else ""
     return Figure(
         name="composition_bars",
         title="Composition of each sample (phylum)",
         caption=f"Left: each bar is one sample, split into the share of each phylum (adding up to 100%: the "
-                f"sample's whole total). Right: the average of all samples. The {named} most abundant phyla have "
-                f"their own colour{rest}.{phylum_unnamed(top)} Samples are sorted by {lead} (most first)."
-                f"{left_out} {descriptive}",
+                f"sample's whole total). Right: the average of all samples. Each of the {named} phyla found has "
+                f"its own colour{rest}.{phylum_unnamed(top)}{no_legend(named, 'phylum')} Samples are sorted by {lead} "
+                f"(most first).{left_out} {descriptive}",
         details="Relative abundance from the uploaded table, summed to phylum (the p__ rank): each sample's "
                 "whole total is 100%. Abundance with no phylum, or a phylum written as unassigned or uncultured, "
                 f"is shown as {not_named('phylum')}. This is not the log-transformed table the tools analyse.",
@@ -251,7 +280,16 @@ def composition_figure(top: pd.DataFrame, colors: dict[str, str], dataset: str |
         x_label="Samples", y_label="Relative abundance (%)", summary=(MEAN,),
         colors=tuple(colors.items()), suptitle=dataset,
         hover="%{x}<br>%{fullData.name}: %{y:.1f}%<extra></extra>", section="overview", level="phylum",
+        legend=named <= LEGEND_MAX,
     )
+
+
+def no_legend(named: int, rank: str) -> str:
+    """The captions' sentence when there are too many taxa for a legend ('' when the legend is shown)."""
+    if named <= LEGEND_MAX:
+        return ""
+    return (f" With {named:,} {PLURALS.get(rank, rank)} there is no legend: hover over a segment in the interactive "
+            "view for its name and share; the CSV lists every one.")
 
 
 def phylum_unnamed(top: pd.DataFrame) -> str:
@@ -271,7 +309,8 @@ def split_violin_figure(percent: pd.DataFrame, groups: pd.Series, phyla: list[st
     names = sorted(set(groups.loc[percent.index]))  # group A (left half) first, as in the other figures
     if len(names) != 2:
         return None
-    long = percent[[p for p in phyla if p not in (OTHER, OTHER_NAMED) and not _is_not_named(p)]]
+    shown = [p for p in phyla if p not in (OTHER, OTHER_NAMED) and not _is_not_named(p)][:TOP_PHYLA]
+    long = percent[shown]
     long = long.assign(group=groups.loc[percent.index])
     data = (long.rename_axis("sample").reset_index()
             .melt(id_vars=["sample", "group"], var_name=rank, value_name="percent"))
@@ -296,7 +335,8 @@ def split_violin_figure(percent: pd.DataFrame, groups: pd.Series, phyla: list[st
 # unchanged; like them, abundance the table does not name at the rank is kept, as its own segment
 # "Not named at <rank>" (small at phylum; at species it can be a third of a sample or more), so a bar stays an
 # honest 100% of its sample. They differ in two ways:
-# - The rest of the named taxa are summed as "Other (named, rare)": a second, darker grey.
+# - Every named taxon has its own colour (up to MAX_TAXA; only beyond that are the rest summed as
+#   "Other (named, rare)", a second, darker grey).
 # - Names are kept as the table writes them (GTDB suffixes included: at these ranks they can be
 #   different taxa); taxa are counted by their whole lineage down to the rank, and where two share a
 #   name, the family (for class, order and family: the rank above) is added to tell them apart.
@@ -309,7 +349,7 @@ NOT_NAMED_GREY = "#E6E6E6"  # lighter than OTHER_GREY; the legend names the two 
 # Names that say a taxon has no name at that rank (16S databases write them out).
 NO_NAME = {"", "unclassified", "unidentified", "uncultured", "unknown", "unassigned", "metagenome",
            "incertae_sedis", "none", "nan", "na"}
-TOP_TAXA = TOP_PHYLA  # 12 named taxa, as at phylum
+TOP_TAXA = MAX_TAXA  # every named taxon, as at phylum
 _SEP = ""  # joins a lineage's names into one grouping key
 NOISE = 1e-6  # % of a sample: what floating-point sums leave over, not a share
 
@@ -464,14 +504,15 @@ def _labels(lineages: list[tuple[str, ...]], rank: str) -> list[str]:
 
 
 def top_taxa(percent: pd.DataFrame, rank: str, top_n: int = TOP_TAXA) -> pd.DataFrame:
-    """The ``top_n`` named taxa by mean (most abundant first), then "Other (named, rare)" (the other named
-    taxa summed) and "Not named at <rank>" (if any sample has some)."""
+    """Every named taxon found (up to ``top_n``) by mean, most abundant first, then "Other (named, rare)" (only
+    the named taxa beyond ``top_n``, summed) and "Not named at <rank>" (if any sample has some)."""
     gap = not_named(rank)
     named = [t for t in percent.columns if t != gap]
-    order = list(percent[named].mean().sort_values(ascending=False, kind="stable").index)[:top_n]
+    means = percent[named].mean()
+    order = list(means[means > 0].sort_values(ascending=False, kind="stable").index)[:top_n]
     out = percent[order].copy()
     rest = [t for t in named if t not in order]
-    if rest:
+    if rest and (percent[rest] > 0).to_numpy().any():
         out[OTHER_NAMED] = percent[rest].sum(axis=1)
     if gap in percent and (percent[gap] > 0).any():
         out[gap] = percent[gap]
@@ -480,23 +521,26 @@ def top_taxa(percent: pd.DataFrame, rank: str, top_n: int = TOP_TAXA) -> pd.Data
 
 def fine_colors(taxa, palette: str = PALETTE_DEFAULT) -> dict[str, str]:
     """A colour per named taxon in the given order (there are no fixed slots below phylum); the lab palette
-    takes tab20's strong hues first, then its light ones, so neighbours in a stack differ. "Other (named,
-    rare)" is grey and "Not named at <rank>" a lighter grey."""
+    takes tab20's strong hues first, then its light ones, so neighbours in a stack differ, then generated
+    colours (``extra_colors``). "Other (named, rare)" is grey and "Not named at <rank>" a lighter grey."""
     if palette not in PALETTES:
         raise ValueError(f"palette must be one of {sorted(PALETTES)}")
     colors = PALETTES[palette]
     if palette == "lab":
         tab20 = [c for c in map(to_hex, colormaps["tab20"].colors) if _not_grey(c)]
         colors = tuple(dict.fromkeys(tab20[0::2] + tab20[1::2] + list(colors)))
+    taxa = list(dict.fromkeys(taxa))
+    named = [t for t in taxa if t != OTHER_NAMED and not _is_not_named(t)]
+    colors = list(colors) + extra_colors(max(0, len(named) - len(colors)))
     out: dict[str, str] = {}
     shown = 0
-    for t in dict.fromkeys(taxa):
+    for t in taxa:
         if t == OTHER_NAMED:
             out[t] = OTHER_GREY
         elif _is_not_named(t):
             out[t] = NOT_NAMED_GREY
         else:
-            out[t] = colors[shown % len(colors)]
+            out[t] = colors[shown]
             shown += 1
     return out
 
@@ -522,6 +566,7 @@ def fine_composition_figure(top: pd.DataFrame, rank: str, colors: dict[str, str]
         x_label="Samples", y_label="Relative abundance (%)", summary=(MEAN,),
         colors=tuple(colors.items()), suptitle=dataset,
         hover="%{x}<br>%{fullData.name}: %{y:.1f}%<extra></extra>", section="overview", level=rank,
+        legend=len(named) <= LEGEND_MAX,
     )
 
 
@@ -530,20 +575,25 @@ def fine_greys(top: pd.DataFrame, rank: str, info: dict) -> str:
     plural = PLURALS[rank]
     named = [t for t in top.columns if t != OTHER_NAMED and not _is_not_named(t)]
     cover = top[named].sum(axis=1).mean() if named else 0.0
-    text = (f"The {len(named)} most abundant {plural} have their own colour; together they make up on average "
-            f"{cover:.0f}% of a sample.")
+    if OTHER_NAMED in top:
+        text = (f"The {len(named):,} most abundant {plural} have their own colour; together they make up on average "
+                f"{cover:.0f}% of a sample.")
+    else:
+        text = (f"Each of the {len(named):,} {plural} found has its own colour; together they make up on average "
+                f"{cover:.0f}% of a sample.")
     rest = info["named_taxa"] - len(named)
     greys = []
     if OTHER_NAMED in top:
-        greys.append(f"{OTHER_NAMED} (grey) sums the other {rest:,} named {plural if rest != 1 else rank}")
+        greys.append(f"{OTHER_NAMED} (grey) sums the other {rest:,} named {plural if rest != 1 else rank}, too many "
+                     "to draw one by one")
     if not_named(rank) in top:
         share = info["not_named_percent"]
         greys.append(f"{not_named(rank)} (light grey) is the abundance your table does not name down to "
                      f"{rank}, on average {'under 0.1' if share < 0.05 else f'{share:.1f}'}% of a sample")
     if greys:
-        text += (" " + "; ".join(greys) + ". At fine levels the greys can be large: many rare taxa (a long tail) "
-                 "and taxa named only to a coarser rank. They are part of each sample's total, not missing data.")
-    return text
+        text += (" " + "; ".join(greys) + ". At fine levels the grey can be large: taxa named only to a coarser "
+                 "rank. It is part of each sample's total, not missing data.")
+    return text + no_legend(len(named), rank)
 
 
 def _fine_details(rank: str) -> str:

@@ -185,10 +185,12 @@ def test_edge_cases_zero_reads_few_samples_and_identical_samples():
     assert "beta_pcoa" not in {f.name for f in overview_figures(same, CANONICAL)}  # nothing to separate
 
 
-def test_many_phyla_are_summed_as_other():
+def test_many_phyla_each_get_a_colour_and_no_legend():
     table = _table({f"Phylum{i:02d}": [i + 1, 30 - i] for i in range(30)})
     bars = overview_figures(table, CANONICAL)[0]
-    assert bars.data["phylum"].nunique() == TOP_PHYLA + 1 and OTHER in set(bars.data["phylum"])
+    assert bars.data["phylum"].nunique() == 30 and OTHER not in set(bars.data["phylum"])
+    assert len({c for _, c in bars.colors if _ != OTHER}) == 30
+    assert not bars.legend and "With 30 phyla there is no legend" in bars.caption
 
 
 def test_options_dataset_name_palette_and_split_violin(counts, labels):
@@ -359,7 +361,9 @@ def finished_run(tmp_path_factory):
 
 def test_every_analysis_gets_the_overview_and_the_zip_has_it(finished_run):
     view = workflows.describe(finished_run)
-    assert tuple(f.name for f in view.overview_figures) == FIGURE_NAMES
+    # The page opens composition at the run's level (species by default); phylum is one click away.
+    assert tuple(f.name for f in view.overview_figures) == ("composition_bars_species", "composition_pie_species", *FIGURE_NAMES[2:])
+    assert tuple(f.name for f in view.overview_at("phylum")) == FIGURE_NAMES
     with zipfile.ZipFile(io.BytesIO(workflows.build_bundle(finished_run))) as zf:
         names = set(zf.namelist())
         for name in FIGURE_NAMES:
@@ -380,5 +384,55 @@ def test_the_results_page_shows_the_overview_as_descriptive(tmp_path):
     assert '<h3 id="overview-heading">Descriptive overview of your data' in section
     assert "(not the analysis result)" in section
     assert "Mostly descriptive." in section and "<strong>exploratory</strong>" in section
-    assert 'class="figure figure-wide"' in section and "Composition of each sample (phylum)" in section
+    assert 'class="figure figure-wide"' in section and "Composition of each sample (species)" in section
     assert page.index("overview-heading") < page.index("Reproducibility record")
+
+
+# --- sparsity at the run's level ------------------------------------------------------------------
+
+def test_level_table_adds_columns_up_by_lineage_as_mipmlp_groups_them():
+    from microplatform.reports.overview import level_table
+    table = pd.DataFrame({"k__B;p__F;c__C;o__O;f__A;g__X;s__x1": [1, 0], "k__B;p__F;c__C;o__O;f__A;g__X;s__x2": [2, 5],
+                    "k__B;p__F;c__C;o__O;f__A;g__;s__": [3, 0], "k__B;p__F;c__C;o__O;f__Z;g__Y;s__y": [0, 4]}, index=["s0", "s1"])
+    assert level_table(table, None) is table  # no level: the table's own columns
+    assert level_table(table, 7).shape[1] == 4
+    genus = level_table(table, 6)
+    assert genus.shape[1] == 3  # X (x1 + x2), the family A taxon not named at genus, Y
+    assert genus["k__B;p__F;c__C;o__O;f__A;g__X"].tolist() == [3, 5]
+    assert level_table(table, 5).shape[1] == 2 and level_table(table, 2).shape[1] == 1
+    assert (level_table(table, 6).sum(axis=1) == table.sum(axis=1)).all()  # nothing lost
+
+
+def test_level_table_keeps_a_metaphlan_tables_rows_of_that_rank():
+    from microplatform.reports.overview import level_table
+    table = pd.DataFrame({"k__B": [10, 10], "k__B|p__F": [10, 10], "k__B|p__F|g__G": [6, 10], "k__B|p__F|g__H": [4, 0]}, index=["s0", "s1"])
+    assert list(level_table(table, 6).columns) == ["k__B|p__F|g__G", "k__B|p__F|g__H"]
+    assert list(level_table(table, 2).columns) == ["k__B|p__F"]
+
+
+def test_the_sparsity_figures_count_taxa_at_the_level_and_say_so(counts):
+    at_genus = {f.name: f for f in overview_figures(counts, CANONICAL, level=6)}
+    as_uploaded = {f.name: f for f in overview_figures(counts, CANONICAL)}
+    genera = len(at_genus["taxa_prevalence"].data)
+    assert genera < len(as_uploaded["taxa_prevalence"].data) == counts.shape[1]
+    for name in ("taxa_prevalence", "taxa_per_sample"):
+        assert "Taxa are counted at genus level, the run's level" in at_genus[name].caption
+        assert f"({genera:,} taxa)" in at_genus[name].caption
+        assert "counted at" not in as_uploaded[name].caption
+    assert (at_genus["taxa_per_sample"].data["taxa_detected"]
+            <= as_uploaded["taxa_per_sample"].data["taxa_detected"]).all()
+    # Diversity stays on the table as uploaded, whatever the level.
+    assert at_genus["alpha_diversity"].data.equals(as_uploaded["alpha_diversity"].data)
+    assert at_genus["beta_pcoa"].data.equals(as_uploaded["beta_pcoa"].data)
+
+
+def test_a_run_at_genus_opens_composition_at_genus_and_counts_genera(tmp_path):
+    from microplatform.reports.overview import level_table
+    run = workflows.start_example_run(tmp_path)
+    workflows.set_taxonomy_level(run, "genus")
+    workflows.run_goal(run, "preprocess", cache_dir=tmp_path / "cache")
+    view = workflows.describe(run)
+    assert view.composition_level() == "genus"
+    assert [f.name for f in view.overview_figures][:2] == ["composition_bars_genus", "composition_pie_genus"]
+    prevalence = pd.read_csv(run.figures_dir / "taxa_prevalence.csv")
+    assert len(prevalence) == level_table(workflows.count_matrix(run.counts()), 6).shape[1] == 175

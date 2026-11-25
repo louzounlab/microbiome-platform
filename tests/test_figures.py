@@ -161,8 +161,9 @@ def finished_run(tmp_path_factory):
 def test_preprocessing_produces_figures(finished_run):
     view = workflows.describe(finished_run)
     assert [f.name for f in view.quality_figures] == ["reads_per_sample", "reads_vs_taxa"]
-    assert [f.name for f in view.overview_figures] == ["composition_bars", "composition_pie", "alpha_diversity",
-                                                       "beta_pcoa", "taxa_per_sample", "taxa_prevalence"]
+    assert [f.name for f in view.overview_figures] == ["composition_bars_species", "composition_pie_species",
+                                                       "alpha_diversity", "beta_pcoa", "taxa_per_sample",
+                                                       "taxa_prevalence"]  # composition at the run's level
 
 
 def test_figure_files_cannot_escape_the_run(finished_run):

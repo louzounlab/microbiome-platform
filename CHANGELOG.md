@@ -8,6 +8,22 @@ All notable changes to `microplatform`. The format follows
 
 ## [Unreleased]
 
+### Changed
+- Composition (bars and pie, at every level): every taxon found gets its own colour (no "Other", no top 12;
+  past the palette, generated colours, never grey). The legend lists them up to 20 (`composition.LEGEND_MAX`);
+  with more, there is none (`Figure.legend`): hover names a segment and the CSV lists every one. Only past
+  `composition.MAX_TAXA` (1,500) would the rest be summed as "Other (named, rare)". The split violins keep the
+  12 most abundant. Bars draw only the segments there are, as one collection, so a thousand species still
+  take seconds.
+- The results page opens composition at the run's taxonomy level (species unless chosen; phylum for a
+  table used as it is), not always at phylum.
+- The two sparsity figures (taxa per sample, prevalence) count taxa at the run's level
+  (`overview_figures(..., level=)`, `overview.level_table`): columns added up by lineage, as MIPMLP groups
+  them. Alpha and beta diversity stay on the table as uploaded.
+
+### Fixed
+- The lab palette listed one colour (#ccebc5) twice, so two taxa could share it.
+
 ### Added
 - A taxonomy level per run, for every tool: the Plan step offers phylum down to the deepest rank the
   table names for most taxa, and species (the default, unchanged); `mp.analyze(..., taxonomy_level="genus")`

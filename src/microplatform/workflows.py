@@ -167,8 +167,8 @@ class RunView:
     @property
     def overview_figures(self) -> list[figures.ExportedFigure]:
         """The data overview (composition, diversity, sparsity): descriptive, the same for every tool.
-        Composition at phylum (see ``overview_at`` for the other ranks)."""
-        return self.overview_at(COMPOSITION_DEFAULT)
+        Composition at the run's level (see ``composition_level``; ``overview_at`` for the other ranks)."""
+        return self.overview_at()
 
     @property
     def composition_levels(self) -> list[str]:
@@ -182,14 +182,18 @@ class RunView:
         return _drawn_ranks(self.figures) if self.show_results else []
 
     def composition_level(self, requested: str | None = None) -> str:
-        """The rank to show: the one asked for if it was drawn, else phylum (or the coarsest drawn)."""
+        """The rank to show: the one asked for if it was drawn, else the run's level (species unless chosen; phylum
+        for a table used as it is), else phylum (or the coarsest drawn)."""
         levels = self.composition_levels
         if requested in levels:
             return requested
+        own = level_name(self.taxonomy_level) if self.preprocessing != "as_is" else COMPOSITION_DEFAULT
+        if own in levels:
+            return own
         return COMPOSITION_DEFAULT if COMPOSITION_DEFAULT in levels or not levels else levels[0]
 
     def overview_at(self, level: str | None = None) -> list[figures.ExportedFigure]:
-        """The overview with its composition figures at ``level`` (phylum by default), where phylum's are."""
+        """The overview with its composition figures at ``level`` (the run's level by default), where phylum's are."""
         shown = self.composition_level(level)
         overview_figs = [f for f in self.figures if f.section == "overview"]
         out, placed = [], False
@@ -507,8 +511,10 @@ def run_goal(run: runs.Run, goal_id: str, cache_dir: Path | None = None, choices
         dataset, result = build_dataset(run, settings, cache_dir, engine.name, as_is=as_is)
         run.save_result(result)  # the representation this engine used is kept for every run
         figures.export(figures.preprocessing_figures(dataset.raw_counts, dataset.settings), run.figures_dir)
+        # Sparsity is counted at the run's level (a table used as it is was not grouped: its own columns).
         figures.export(overview.overview_figures(dataset.raw_counts, dataset.settings, dataset.labels,
-                                                 dataset.label_kind, dataset=_dataset_name(run)), run.figures_dir)
+                                                 dataset.label_kind, dataset=_dataset_name(run),
+                                                 level=None if as_is else level), run.figures_dir)
         # The same composition at every finer rank the table names, for the page's "Composition at" switch.
         figures.export(overview.composition_levels(dataset.raw_counts, dataset.labels, dataset.label_kind,
                                                    dataset=_dataset_name(run)), run.figures_dir)

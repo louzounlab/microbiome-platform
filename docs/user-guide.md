@@ -179,23 +179,25 @@ Templates of all three are on the website (in every error message, and under
   across the whole report, and not the tools' findings.
   - **Composition of each sample** (in the lab's figure style): on the left a
     stacked bar per sample, by phylum, sorted by Firmicutes; on the right one
-    bar with the mean of all samples. The 12 phyla with the highest mean get a
-    colour; the rest are "Other", in grey. Each bar is the sample's whole
+    bar with the mean of all samples. Every phylum found gets its own colour.
+    The legend lists the taxa when there are up to 20; with more there is no
+    legend: hover over a segment in the interactive view for its name and share,
+    and the CSV lists every one. Each bar is the sample's whole
     total (100%): abundance your table does not name to a phylum is its own
     light-grey segment, **Not named at phylum**, as at the finer levels (only
     if your table has any). Your file's name is the heading of the image (PNG
     at 300 dpi, and SVG).
   - **Average composition:** a pie, one per group. The colours match the bars.
-  - **Composition at a finer level:** above the composition figures, "Show composition at" switches
-    the bars and the pie between phylum (the default) and each finer level your table names (class,
-    order, family, genus, species). Every level is drawn with the run, so switching re-runs nothing,
-    and it does not change the analysis level (see "Taxonomy level"). Below phylum, the 12 most
-    abundant taxa get a colour and the rest are in two greys, so each bar is still 100% of the sample:
-    **Other (named, rare)** (grey) sums the other named taxa, and **Not named at <level>** (light grey)
-    is the abundance your table does not name down to that level (including "unclassified" or
-    "uncultured"). At genus and species the greys can be large: many rare taxa, and taxa named only to
-    a coarser level. The caption says how much the 12 cover and how large each grey is. Names are kept
-    as your table writes them (GTDB suffixes included); where two taxa share a name, the family is added.
+  - **Composition at a finer level:** the composition figures open at the run's level (species unless
+    you chose another in Plan; phylum for a table used as it is). Above them, "Show composition at"
+    switches the bars and the pie between phylum and each finer level your table names (class, order,
+    family, genus, species). Every level is drawn with the run, so switching re-runs nothing, and it does
+    not change the analysis level (see "Taxonomy level"). At every level each taxon found gets its own
+    colour (at species that can be hundreds: the legend is left out above 20), and **Not named at
+    <level>** (light grey) is the abundance your table does not name down to that level (including
+    "unclassified" or "uncultured"), so each bar is still 100% of the sample. At genus and species the
+    grey can be large: taxa named only to a coarser level. Names are kept as your table writes them
+    (GTDB suffixes included); where two taxa share a name, the family is added.
   - **Look at one taxon:** under the composition figures, pick a level and start typing a name: the list
     holds every taxon your table names at that level, most abundant first ("uncultured", "unclassified" and
     similar are not offered: they are not one taxon). "Show" draws one bar per sample, the taxon's share of

@@ -86,7 +86,7 @@ if (figureGrid) {
             // A legend beside the plot (e.g. the taxa of a composition figure) would squeeze it: put it
             // underneath, and give the figure the height that takes.
             const legend = fig.layout.legend;
-            if (legend && legend.orientation !== "h") {
+            if (legend && legend.orientation !== "h" && fig.layout.showlegend !== false) {
               const below = fig.layout.xaxis && fig.layout.xaxis.title ? -0.45 : -0.08; // under the axis title, if any
               fig.layout.legend = { ...legend, orientation: "h", x: 0, xanchor: "left", y: below, yanchor: "top" };
               el.style.aspectRatio = "3 / 4";

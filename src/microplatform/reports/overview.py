@@ -21,9 +21,14 @@ relative abundances), never from the log-transformed table the tools use:
     taxa_per_sample    row sparsity: how many taxa each sample contains
     taxa_prevalence    column sparsity: in how many samples each taxon appears
 
-Composition is shown at phylum level: the 12 phyla with the highest mean get a colour each
+Composition is shown at phylum level: every phylum found gets a colour of its own
 (``palette="lab"``, the lab's look, by default; ``palette="colorblind"`` for a colour-blind-safer
-set), the rest are summed as "Other" in grey. A phylum has the same colour in every
+set, both extended with generated colours when there are more taxa than colours). The legend lists
+the taxa up to ``composition.LEGEND_MAX``; with more there is none (hover and the CSV name them).
+
+With ``level`` (the run's MIPMLP taxonomy level), the two sparsity figures count taxa at that level:
+the columns are added up by their lineage down to it, as MIPMLP groups them (a taxon not named that
+deep stays at its deepest named rank). Alpha and beta diversity always use the table as uploaded. A phylum has the same colour in every
 composition figure and every dataset; a group has the same colour in the diversity boxes,
 the PCoA and the violins.
 
@@ -43,11 +48,11 @@ import numpy as np
 import pandas as pd
 from scipy.spatial.distance import pdist, squareform
 
-from microplatform.core.contract import LABEL_COLUMN, LabelKind
+from microplatform.core.contract import LABEL_COLUMN, RANK_SEPARATOR, LabelKind
 from microplatform.core.preprocessing import PreprocessSettings
 from microplatform.core.profiler import value_kind
 from microplatform.reports import composition, diversity_stats
-from microplatform.reports.composition import PALETTE_DEFAULT, TOP_PHYLA, CompositionError
+from microplatform.reports.composition import PALETTE_DEFAULT, CompositionError
 from microplatform.reports.figures import DESCRIPTIVE, OTHER, Figure, group_colors, taxa_prevalence
 
 NO_LABEL = "No label"  # samples the labels file does not mention
@@ -80,7 +85,8 @@ def overview_figures(
     dataset: str | None = None,
     palette: str = PALETTE_DEFAULT,
     split_violin: bool = False,
-    top_n: int = TOP_PHYLA,
+    top_n: int = composition.MAX_TAXA,
+    level: int | None = None,
 ) -> list[Figure]:
     """The data overview from the user's table (samples × taxa, columns named by lineage).
 
@@ -95,6 +101,8 @@ def overview_figures(
     A table with negative values (already log-transformed or z-scored, e.g. MIPMLP output used as it
     is) gets no overview at all: composition, diversity and Bray-Curtis distances need abundances,
     and would be wrong on such values (the page says why: ``OVERVIEW_UNAVAILABLE``).
+    ``level`` (MIPMLP's number, 2 = phylum … 7 = species) counts the sparsity figures' taxa at that level;
+    None counts the table's own columns.
     """
     if (counts.to_numpy() < 0).any():
         return []
@@ -111,8 +119,37 @@ def overview_figures(
         pcoa = _beta_figure(with_reads, groups if grouped else None, colors, left_out)
         if pcoa is not None:
             figures.append(pcoa)
-    prevalence = taxa_prevalence(counts, settings, section="overview")
-    return figures + [_taxa_per_sample(counts), replace(prevalence, caption=f"{prevalence.caption} {DESCRIPTIVE}")]
+    at_level = level_table(counts, level)
+    note = _level_note(level, at_level.shape[1], counts.shape[1])
+    prevalence = taxa_prevalence(at_level, settings, section="overview")
+    return figures + [_taxa_per_sample(at_level, note),
+                      replace(prevalence, caption=f"{prevalence.caption}{note} {DESCRIPTIVE}")]
+
+
+def level_table(counts: pd.DataFrame, level: int | None) -> pd.DataFrame:
+    """The table's columns added up by their lineage down to ``level`` (MIPMLP's number: 2 = phylum … 7 =
+    species), as MIPMLP groups them: the first ``level`` ranks as written, so a taxon not named that deep
+    stays at its deepest named rank. A table that lists every rank (MetaPhlAn) keeps its rows of that rank.
+    None, or a table without lineages, is returned as it is."""
+    if level is None:
+        return counts
+    ranks = [composition._ranks(c) for c in counts.columns]
+    if composition._all_ranks(ranks):
+        prefix = f"{composition.LINEAGE_RANKS[level - 1][0]}__"
+        keep = [i for i, r in enumerate(ranks) if r and r[-1].startswith(prefix)]
+        return counts.iloc[:, keep] if keep else counts
+    keys = [RANK_SEPARATOR.join(r[:level]) if r else str(c) for r, c in zip(ranks, counts.columns)]
+    return counts.T.groupby(keys, sort=False).sum().T
+
+
+def _level_note(level: int | None, at_level: int, columns: int) -> str:
+    """The sparsity captions' sentence on the level the taxa are counted at ('' without a level)."""
+    if level is None:
+        return ""
+    rank = composition.LINEAGE_RANKS[level - 1]
+    return (f" Taxa are counted at {rank} level, the run's level: the table's {columns:,} columns are added up by "
+            f"their lineage down to {rank} ({at_level:,} taxa), as MIPMLP groups them; a taxon not named at {rank} "
+            "stays at its deepest named rank.")
 
 
 def composition_levels(
@@ -362,23 +399,25 @@ def _composition_pie(percent: pd.DataFrame, groups: pd.Series | None, colors: di
         data = (means.stack(future_stack=True).round(4).rename("percent")
                 .rename_axis(["group", rank]).reset_index())
         title, over = f"Average composition per group ({rank})", "the samples of each group"
-    rest = f", with the rest summed as {OTHER}" if OTHER in percent.columns else ""
-    if rank == "phylum" and composition.not_named("phylum") in percent.columns:
-        rest += f", and {composition.not_named('phylum')} in light grey (abundance with no phylum)"
-    if rank != "phylum":
-        rest = f". {greys}"
+    named = len([t for t in percent.columns
+                 if t not in (OTHER, composition.OTHER_NAMED) and not composition._is_not_named(t)])
+    if rank == "phylum":
+        rest = f", with {OTHER} in grey (abundance named only as an unclassified phylum)" if OTHER in percent else ""
+        if composition.not_named("phylum") in percent.columns:
+            rest += f", and {composition.not_named('phylum')} in light grey (abundance with no phylum)"
+        account = f"Each of the {named:,} phyla found has its own colour{rest}.{composition.no_legend(named, 'phylum')}"
+    else:
+        account = greys
     return Figure(
         name="composition_pie" + ("" if rank == "phylum" else f"_{rank}"),
         title=title,
         level=rank,
-        caption=f"The average share of each {rank} over {over} (each sample counts equally)"
-                f"{rest}{'' if rank == 'phylum' else ' '}"
-                f"{'Relative' if rank != 'phylum' else '. Relative'} abundance from the uploaded table; the colours "
-                f"match the bars. {DESCRIPTIVE}",
+        caption=f"The average share of each {rank} over {over} (each sample counts equally). {account} "
+                f"Relative abundance from the uploaded table; the colours match the bars. {DESCRIPTIVE}",
         data=data, kind="pie", x=rank, y="percent", x_label="", y_label="",
         group_by="group" if groups is not None else None, colors=tuple(colors.items()),
         hover="%{label}: %{value:.1f}%<extra>%{fullData.name}</extra>",
-        section="overview",
+        section="overview", legend=named <= composition.LEGEND_MAX,
     )
 
 
@@ -501,7 +540,7 @@ def _p(p: float, permutations: int) -> str:
     return f"≤ {floor:.3f}" if p <= floor else f"= {p:.3f}"
 
 
-def _taxa_per_sample(counts: pd.DataFrame) -> Figure:
+def _taxa_per_sample(counts: pd.DataFrame, note: str = "") -> Figure:
     detected = (counts > 0).sum(axis=1)
     data = pd.DataFrame({"sample": detected.index, "taxa_detected": detected.to_numpy(),
                          "percent_of_taxa": (detected / counts.shape[1] * 100).round(2).to_numpy()})
@@ -511,7 +550,7 @@ def _taxa_per_sample(counts: pd.DataFrame) -> Figure:
         title="How many taxa each sample contains (row sparsity)",
         caption=f"For each sample, how many of the table's {counts.shape[1]:,} taxa it contains (a count above "
                 "0); every other taxon is a zero in that sample's row. A sample far below the rest may have "
-                f"failed sequencing. {DESCRIPTIVE}",
+                f"failed sequencing.{note} {DESCRIPTIVE}",
         data=data, kind="histogram", x="taxa_detected", y=None, x_range=None,
         x_label="Taxa detected in a sample", y_label="Number of samples (log scale)", log_y=True,
         marker=(median, f"median {median:,.0f}"),

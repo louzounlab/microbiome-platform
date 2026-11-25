@@ -64,11 +64,18 @@ def test_not_named_at_phylum_comes_last_in_light_grey_and_is_never_other():
     cols = {f"p__P{i:02d}": [i + 1, i + 1] for i in range(14)} | {"k__Bacteria;p__": [200, 200]}
     percent, _ = phylum_percent(_relative(cols))
     top = top_phyla(percent)
-    assert list(top.columns[-2:]) == [OTHER, "Not named at phylum"]  # the big grey is not ranked as a phylum
-    assert top[OTHER].tolist() == pytest.approx(percent[["P00", "P01"]].sum(axis=1).tolist())  # nor summed in Other
+    assert top.columns[-1] == "Not named at phylum" and OTHER not in top  # the big grey is not ranked as a phylum
+    assert len(top.columns) == 15  # every phylum, then the light grey
     assert np.allclose(top.sum(axis=1), 100)
     colors = phylum_colors(top.columns)
-    assert colors["Not named at phylum"] == NOT_NAMED_GREY and colors[OTHER] == OTHER_GREY
+    assert colors["Not named at phylum"] == NOT_NAMED_GREY and len({colors[f"P{i:02d}"] for i in range(14)}) == 14
+
+
+def test_beyond_max_taxa_the_rest_is_other():
+    table = _relative({f"p__P{i:02d}": [i + 1, i + 1] for i in range(20)})
+    top = top_phyla(phylum_percent(table)[0], top_n=12)
+    assert len(top.columns) == 13 and top.columns[-1] == OTHER
+    assert np.allclose(top.sum(axis=1), 100)
 
 
 def test_the_bars_caption_names_the_light_grey_and_leaves_nothing_out():
@@ -169,12 +176,47 @@ def test_samples_with_no_abundance_are_dropped_and_unnamed_ones_kept():
 
 # --- top phyla, order and colours -----------------------------------------------------------------
 
-def test_top_12_by_mean_and_other_last():
+def test_every_phylum_by_mean_with_its_own_colour_and_no_other():
     table = _relative({f"p__P{i:02d}": [i + 1, i + 1] for i in range(20)})
     top = top_phyla(phylum_percent(table)[0])
-    assert len(top.columns) == TOP_PHYLA + 1 and top.columns[-1] == OTHER
+    assert len(top.columns) == 20 and OTHER not in top
     assert list(top.columns[:3]) == ["P19", "P18", "P17"]
     assert np.allclose(top.sum(axis=1), 100)
+    colors = phylum_colors(top.columns)
+    assert len({colors[p] for p in top.columns}) == 20
+
+
+def test_a_phylum_absent_from_every_sample_is_not_drawn():
+    table = _relative({"p__Firmicutes": [90, 80], "p__Bacteroidetes": [10, 20], "p__Ghost": [0, 0]})
+    assert "Ghost" not in top_phyla(phylum_percent(table)[0])
+
+
+def test_past_the_palette_the_colours_are_generated_distinct_and_never_grey():
+    from microplatform.reports.composition import LEGEND_MAX, extra_colors, fine_colors
+    names = [f"T{i:04d}" for i in range(1300)]
+    colors = fine_colors(names)
+    assert len(set(colors.values())) == 1300  # a thousand species: still one colour each
+    for color in extra_colors(500):
+        r, g, b = (int(color[i:i + 2], 16) for i in (1, 3, 5))
+        assert max(r, g, b) - min(r, g, b) > 16, color
+    many = phylum_colors([f"P{i}" for i in range(60)])
+    assert len({c for p, c in many.items() if p.startswith("P")}) == 60
+    assert LEGEND_MAX == 20
+
+
+def test_the_legend_is_dropped_above_twenty_taxa_and_the_caption_says_so(tmp_path):
+    from microplatform.reports.figures import export, to_plotly
+    few = _relative({f"p__P{i:02d}": [i + 1, i + 1] for i in range(20)})
+    many = _relative({f"p__P{i:02d}": [i + 1, i + 1] for i in range(21)})
+    for table, shown in ((few, True), (many, False)):
+        top = top_phyla(phylum_percent(table)[0])
+        fig = composition_figure(top, phylum_colors(top.columns))
+        assert fig.legend is shown
+        assert ("there is no legend" in fig.caption) is not shown
+        assert any(t.showlegend for t in to_plotly(fig).data) is shown
+        export([fig], tmp_path / str(shown))
+        svg = (tmp_path / str(shown) / "composition_bars.svg").read_text(encoding="utf-8")
+        assert (">P00<" in svg or "P00</text>" in svg or "P00" in re.sub(r"<[^>]+>", " ", svg)) is shown
 
 
 def test_samples_are_sorted_by_firmicutes_else_the_top_phylum():
@@ -245,32 +287,34 @@ def test_every_per_phylum_plot_uses_the_one_global_map_and_the_greys_are_last(ma
 
     counts, figs, out = many_phyla
     percent, _ = phylum_percent(counts)
-    assert percent.shape[1] > TOP_PHYLA  # the point of this dataset
+    assert percent.shape[1] > TOP_PHYLA  # the point of this dataset: more phyla than the old 12
     top = top_phyla(percent)
-    gap = "Not named at phylum"  # this table has abundance with no phylum: the light grey, after "Other"
-    greys = [OTHER, gap]
+    gap = "Not named at phylum"  # this table has abundance with no phylum: the light grey, last
     expected = phylum_colors(top.columns)  # the global map, lab palette
-    assert list(expected)[-2:] == greys and expected[OTHER] == OTHER_GREY and expected[gap] == NOT_NAMED_GREY
+    named = [p for p in expected if p not in (OTHER, gap)]
+    assert OTHER not in top and len(named) == percent.shape[1] - 1  # every phylum has its own colour
+    assert len({expected[p] for p in named}) == len(named) and expected[gap] == NOT_NAMED_GREY
     for name in ("composition_bars", "composition_pie"):
         fig = figs[name]
-        assert dict(fig.colors) == expected and list(dict(fig.colors))[-2:] == greys, name
-        # The data: the light grey is the last segment of every bar and the last slice of every pie, "Other" just before.
+        assert {k: v for k, v in fig.colors if k != OTHER} == {k: v for k, v in expected.items() if k != OTHER}, name
+        # The data: the light grey is the last segment of every bar and the last slice of every pie.
         by = "sample" if name == "composition_bars" else "group"
         assert set(fig.data.groupby(by, sort=False)["phylum"].last()) == {gap}, name
-        assert set(fig.data.groupby(by, sort=False)["phylum"].nth(-2)) == {OTHER}, name
-        # The drawing (SVG, same as the PNG): the greys are the legend's last entries.
+        assert OTHER not in set(fig.data["phylum"]), name
+        # The drawing (SVG, same as the PNG): 16 phyla is within the legend's 20, the grey is its last entry.
+        assert fig.legend, name
         svg = (out / f"{name}.svg").read_text(encoding="utf-8")
-        assert _legend_names(svg, set(expected))[-2:] == greys, name
-        assert OTHER_GREY.lower() in svg.lower() and NOT_NAMED_GREY.lower() in svg.lower(), name
+        assert _legend_names(svg, set(expected))[-1] == gap, name
+        assert NOT_NAMED_GREY.lower() in svg.lower(), name
     bars = to_plotly(figs["composition_bars"])
-    assert [t.name for t in bars.data][-4:] == [OTHER, OTHER, gap, gap] or         [t.name for t in bars.data][-4:] == [OTHER, gap, OTHER, gap]  # drawn last in both panels
-    assert {t.name: t.marker.color for t in bars.data} == expected
+    assert {t.name for t in bars.data[-2:]} == {gap}  # drawn last in both panels
+    assert {t.name: t.marker.color for t in bars.data} == {k: v for k, v in expected.items() if k != OTHER}
     for pie in to_plotly(figs["composition_pie"]).data:
-        assert list(pie.labels)[-2:] == greys and list(pie.marker.colors)[-2:] == [OTHER_GREY, NOT_NAMED_GREY]
+        assert list(pie.labels)[-1] == gap and list(pie.marker.colors)[-1] == NOT_NAMED_GREY
         assert dict(zip(pie.labels, pie.marker.colors)) == {p: expected[p] for p in pie.labels}
-    # The split violins compare groups (coloured by group); they show the named phyla only, in the same order.
+    # The split violins compare groups (coloured by group); they show the 12 most abundant named phyla, in order.
     violin = figs["composition_violin"]
-    assert list(dict.fromkeys(violin.data["phylum"])) == [p for p in expected if p not in greys]
+    assert list(dict.fromkeys(violin.data["phylum"])) == named[:TOP_PHYLA]
 
 
 def test_a_figure_without_explicit_colours_still_gets_the_global_map():
